@@ -1,222 +1,260 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using StereoKit;
+﻿using StereoKit;
 
 namespace gesh;
 
-using GEdge = (int, int);
-using GFace = (int, int, int);
-
-class SwapList<T>
+enum GHandState
 {
-	public List<T> values = new();
-	public Queue<int> free = new();
+	Open,
+	TwoFingerPinch,
+	ThreeFingerPinch
+}
 
-	public int Add(T value)
+record struct GHandInput(GHandState state, Pose pose)
+{
+	public static GHandInput GetInput(Handed handed, GHandInput last)
 	{
-		if (free.Count == 0)
+		const float DISTANCE_THRESHOLD_SQ_ON = 0.025f * 0.025f;
+		const float DISTANCE_THRESHOLD_SQ_OFF = 0.030f * 0.030f;
+
+		Hand hand = Input.Hand(handed);
+
+		float indexDistSq = (hand[FingerId.Index, JointId.Tip].position - hand[FingerId.Thumb, JointId.Tip].position).MagnitudeSq;
+		float middleDistSq = (hand[FingerId.Middle, JointId.Tip].position - hand[FingerId.Thumb, JointId.Tip].position).MagnitudeSq;
+
+		GHandState newState = GHandState.Open;
+		switch (last.state)
 		{
-			values.Add(value);
-			return values.Count() - 1;
+			case GHandState.Open:
+				{
+					// if (indexDistSq < DISTANCE_THRESHOLD_SQ_ON && middleDistSq < DISTANCE_THRESHOLD_SQ_ON)
+					// {
+					// 	newState = GHandState.ThreeFingerPinch;
+					// }
+					// else if (indexDistSq < DISTANCE_THRESHOLD_SQ_ON)
+					// {
+					// 	newState = GHandState.TwoFingerPinch;
+					// }
+					if (indexDistSq < DISTANCE_THRESHOLD_SQ_ON)
+					{
+						newState = GHandState.TwoFingerPinch;
+					}
+					else if (middleDistSq < DISTANCE_THRESHOLD_SQ_ON)
+					{
+						newState = GHandState.ThreeFingerPinch;
+					}
+					break;
+				}
+			case GHandState.TwoFingerPinch:
+				{
+					// if (indexDistSq > DISTANCE_THRESHOLD_SQ_OFF)
+					// {
+					// 	newState = GHandState.Open;
+					// }
+					// else if (middleDistSq < DISTANCE_THRESHOLD_SQ_ON)
+					// {
+					// 	newState = GHandState.ThreeFingerPinch;
+					// }
+					// else
+					// {
+					// 	newState = GHandState.TwoFingerPinch;
+					// }
+					if (indexDistSq <= DISTANCE_THRESHOLD_SQ_OFF)
+					{
+						newState = GHandState.TwoFingerPinch;
+					}
+					break;
+				}
+			case GHandState.ThreeFingerPinch:
+				{
+					// if (indexDistSq <= DISTANCE_THRESHOLD_SQ_OFF && middleDistSq <= DISTANCE_THRESHOLD_SQ_OFF)
+					// {
+					// 	newState = GHandState.ThreeFingerPinch;
+					// }
+					if (middleDistSq <= DISTANCE_THRESHOLD_SQ_OFF)
+					{
+						newState = GHandState.ThreeFingerPinch;
+					}
+					break;
+				}
 		}
 
-		int idx = free.Dequeue();
-		values[idx] = value;
-		return idx;
+		Pose pose = newState == GHandState.ThreeFingerPinch ? hand[FingerId.Middle, JointId.Tip].Pose : hand[FingerId.Index, JointId.Tip].Pose;
+		return new GHandInput(newState, pose);
 	}
 
-	public T Remove(int index)
+	public bool JustTwoFingerPinch(GHandInput last)
 	{
-		free.Append(index);
-		return values[index];
+		return state == GHandState.TwoFingerPinch && last.state != GHandState.TwoFingerPinch;
 	}
 
-	public IEnumerable<T> Items()
+	public bool JustThreeFingerPinch(GHandInput last)
 	{
-		int i = 0;
-		return values.Where((_) => !free.Contains(i++));
-	}
-
-	public void Map()
-	{
-
+		return state == GHandState.ThreeFingerPinch && last.state != GHandState.ThreeFingerPinch;
 	}
 }
 
-class GEditableMesh
+class GHand(Handed handed)
 {
-	public Model model = new Model(new Mesh(), Material.UI);
+	GMeshPart? held;
+	Pose heldOffset;
+	Vec3 heldOffsetB;
+	Vec3 heldOffsetC;
 
-	SwapList<Vertex> vertices = new();
-	SwapList<GEdge> edges = new();
-	SwapList<GFace> faces = new();
+	GHandInput lastInput = new();
 
-	public GEditableMesh() { }
-
-	#region editing
-
-	public int AddVertex(Vertex vertex)
+	void Grab(GEditableMesh mesh, GMeshPart? newHeld, Pose pose)
 	{
-		int index = vertices.Add(vertex);
-		if (index == vertices.values.Count() - 1) return index;
+		held = newHeld;
 
-		for (int edgeIndex = 0; edgeIndex < edges.values.Count(); edgeIndex++)
+		switch (held?.Type)
 		{
-			if (edges.free.Contains(edgeIndex)) continue;
-
-			var e = edges.values[edgeIndex];
-
-			if (e.Item1 > index)
-			{
-				edges.values[edgeIndex] = (edges.values[edgeIndex].Item1 + 1, edges.values[edgeIndex].Item2);
-			}
-			if (e.Item2 > index)
-			{
-				edges.values[edgeIndex] = (edges.values[edgeIndex].Item1, edges.values[edgeIndex].Item2 + 1);
-			}
-		}
-
-		for (int faceIndex = 0; faceIndex < faces.values.Count(); faceIndex++)
-		{
-			if (faces.free.Contains(faceIndex)) continue;
-
-			var f = faces.values[faceIndex];
-
-			if (f.Item1 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1 + 1, faces.values[faceIndex].Item2, faces.values[faceIndex].Item3);
-			}
-			if (f.Item2 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1, faces.values[faceIndex].Item2 + 1, faces.values[faceIndex].Item3);
-			}
-			if (f.Item3 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1, faces.values[faceIndex].Item2, faces.values[faceIndex].Item3 + 1);
-			}
-		}
-
-		return index;
-	}
-
-	public void RemoveVertex(int index)
-	{
-		vertices.Remove(index);
-
-		for (int edgeIndex = 0; edgeIndex < edges.values.Count(); edgeIndex++)
-		{
-			if (edges.free.Contains(edgeIndex)) continue;
-
-			var e = edges.values[edgeIndex];
-
-			if (e.Item1 == index || e.Item2 == index)
-			{
-				edges.Remove(edgeIndex);
-				continue;
-			}
-
-			if (e.Item1 > index)
-			{
-				edges.values[edgeIndex] = (edges.values[edgeIndex].Item1 - 1, edges.values[edgeIndex].Item2);
-			}
-			if (e.Item2 > index)
-			{
-				edges.values[edgeIndex] = (edges.values[edgeIndex].Item1, edges.values[edgeIndex].Item2 - 1);
-			}
-		}
-
-		for (int faceIndex = 0; faceIndex < faces.values.Count(); faceIndex++)
-		{
-			if (faces.free.Contains(faceIndex)) continue;
-
-			var f = faces.values[faceIndex];
-
-			if (f.Item1 == index || f.Item2 == index || f.Item3 == index)
-			{
-				faces.Remove(faceIndex);
-				continue;
-			}
-
-			if (f.Item1 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1 - 1, faces.values[faceIndex].Item2, faces.values[faceIndex].Item3);
-			}
-			if (f.Item2 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1, faces.values[faceIndex].Item2 - 1, faces.values[faceIndex].Item3);
-			}
-			if (f.Item3 > index)
-			{
-				faces.values[faceIndex] = (faces.values[faceIndex].Item1, faces.values[faceIndex].Item2, faces.values[faceIndex].Item3 - 1);
-			}
+			case GMeshPartType.Vertex:
+				{
+					var v = mesh.vertices.values[held.Value.Index];
+					heldOffset = new Pose(v.pos - pose.position, pose.orientation.Inverse);
+					break;
+				}
+			case GMeshPartType.Edge:
+				{
+					var e = mesh.edges.values[held.Value.Index];
+					var a = mesh.vertices.values[e.a];
+					var b = mesh.vertices.values[e.b];
+					heldOffset = new Pose(a.pos - pose.position, pose.orientation.Inverse);
+					heldOffsetB = b.pos - pose.position;
+					break;
+				}
+			case GMeshPartType.Face:
+				{
+					var f = mesh.faces.values[held.Value.Index];
+					var a = mesh.vertices.values[f.a];
+					var b = mesh.vertices.values[f.b];
+					var c = mesh.vertices.values[f.c];
+					heldOffset = new Pose(a.pos - pose.position, pose.orientation.Inverse);
+					heldOffsetB = b.pos - pose.position;
+					heldOffsetC = c.pos - pose.position;
+					break;
+				}
 		}
 	}
 
-	public int AddEdge(GEdge edge)
+	public void Tick(GEditableMesh mesh)
 	{
-		return edges.Add(edge);
-	}
+		var input = GHandInput.GetInput(handed, lastInput);
+		var pose = input.pose;
 
-	public void RemoveEdge(int index)
-	{
-		GEdge edge = edges.Remove(index);
-
-		for (int faceIndex = 0; faceIndex < faces.values.Count(); faceIndex++)
+		if (input.JustTwoFingerPinch(lastInput))
 		{
-			if (faces.free.Contains(faceIndex)) continue;
+			Grab(mesh, mesh.GetClosestPart(pose.position), pose);
+		}
+		else if (input.state == GHandState.Open)
+		{
+			held = null;
+		}
 
-			var f = faces.values[faceIndex];
-
-			bool e1 = f.Item1 == edge.Item1 || f.Item2 == edge.Item1 || f.Item3 == edge.Item1;
-			bool e2 = f.Item1 == edge.Item2 || f.Item2 == edge.Item2 || f.Item3 == edge.Item2;
-			if (e1 && e2)
+		if (held.HasValue)
+		{
+			switch (held?.Type)
 			{
-				faces.Remove(faceIndex);
+				case GMeshPartType.Vertex:
+					{
+						var v = mesh.vertices.values[held.Value.Index];
+						var pos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffset.position)) + pose.position;
+						mesh.vertices.values[held.Value.Index] = new Vertex(pos, v.norm, v.uv, v.col);
+						break;
+					}
+				case GMeshPartType.Edge:
+					{
+						var e = mesh.edges.values[held.Value.Index];
+						var a = mesh.vertices.values[e.a];
+						var b = mesh.vertices.values[e.b];
+
+						var aPos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffset.position)) + pose.position;
+						var bPos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffsetB)) + pose.position;
+
+						mesh.vertices.values[e.a] = new Vertex(aPos, a.norm, a.uv, a.col);
+						mesh.vertices.values[e.b] = new Vertex(bPos, b.norm, b.uv, b.col);
+						break;
+					}
+				case GMeshPartType.Face:
+					{
+						var f = mesh.faces.values[held.Value.Index];
+						var a = mesh.vertices.values[f.a];
+						var b = mesh.vertices.values[f.b];
+						var c = mesh.vertices.values[f.c];
+
+						var aPos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffset.position)) + pose.position;
+						var bPos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffsetB)) + pose.position;
+						var cPos = pose.orientation.Rotate(heldOffset.orientation.Rotate(heldOffsetC)) + pose.position;
+
+						mesh.vertices.values[f.a] = new Vertex(aPos, a.norm, a.uv, a.col);
+						mesh.vertices.values[f.b] = new Vertex(bPos, b.norm, b.uv, b.col);
+						mesh.vertices.values[f.c] = new Vertex(cPos, b.norm, b.uv, b.col);
+						break;
+					}
 			}
 		}
-	}
 
-	public int AddFace(GFace face)
-	{
-		return faces.Add(face);
-	}
-
-	public void RemoveFace(int index)
-	{
-		faces.Remove(index);
-	}
-
-	#endregion
-
-	#region rendering
-
-	void UpdateMesh()
-	{
-		model.RootNode.Mesh.SetData(vertices.Items().ToArray(), faces.Items().SelectMany((v) => new[] { (uint)v.Item1, (uint)v.Item2, (uint)v.Item3 }).ToArray());
-	}
-
-	public void Draw()
-	{
-		UpdateMesh();
-		model.Draw(Matrix.Identity);
-		Console.WriteLine($"{model.RootNode.Mesh.VertCount}");
-
-		foreach (var v in vertices.Items())
+		if (input.JustThreeFingerPinch(lastInput))
 		{
-			Mesh.Sphere.Draw(Material.UI, Matrix.TS(v.pos, 0.1f));
+			var part = mesh.GetClosestPart(pose.position);
+			switch (part?.Type)
+			{
+				case GMeshPartType.Vertex:
+					{
+						Vertex v = mesh.vertices.values[part.Value.Index];
+						Vertex newVertex = new Vertex(pose.position, v.norm, v.uv, v.col);
+						int newV = mesh.AddVertex(newVertex);
+						mesh.AddEdge(new GEdge(part.Value.Index, newV));
+						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
+						break;
+					}
+				case GMeshPartType.Edge:
+					{
+						GEdge e = mesh.edges.values[part.Value.Index];
+						Vertex va = mesh.vertices.values[e.a];
+						Vertex newVertex = new Vertex(pose.position, va.norm, va.uv, va.col);
+						int newV = mesh.AddVertex(newVertex);
+
+						mesh.AddEdge(new GEdge(e.a, newV));
+						mesh.AddEdge(new GEdge(e.b, newV));
+
+						mesh.AddFace(new GFace(newV, e.a, e.b));
+
+						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
+						break;
+					}
+				case GMeshPartType.Face:
+					{
+						GFace f = mesh.faces.values[part.Value.Index];
+
+						Vertex va = mesh.vertices.values[f.a];
+						Vertex newVertex = new Vertex(pose.position, va.norm, va.uv, va.col);
+						int newV = mesh.AddVertex(newVertex);
+
+						mesh.AddEdge(new GEdge(f.a, newV));
+						mesh.AddEdge(new GEdge(f.b, newV));
+						mesh.AddEdge(new GEdge(f.c, newV));
+
+						mesh.RemoveFace(part.Value.Index);
+
+						mesh.AddFace(new GFace(newV, f.a, f.b));
+						mesh.AddFace(new GFace(newV, f.b, f.c));
+						mesh.AddFace(new GFace(newV, f.c, f.a));
+
+						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
+						break;
+					}
+			}
 		}
 
-		foreach (var e in edges.Items())
-		{
-			float thickness = 0.05f;
-			Color color = Color.Hex(0xFF0000FF);
-
-			Lines.Add([new LinePoint(vertices.values[e.Item1].pos, color, thickness), new LinePoint(vertices.values[e.Item2].pos, color, thickness)]);
-		}
+		lastInput = input;
 	}
 
-	#endregion
+	public void DrawUI()
+	{
+		UI.Text($"Hand {handed}");
+		UI.Text($"State: {lastInput.state}, Held: {held}");
+	}
 }
 
 class Program
@@ -254,15 +292,63 @@ class Program
 		// editableMesh.AddFace(new GFace(0, 1, 2));
 		editableMesh.AddFace(new GFace(2, 1, 0));
 
+		GHand left = new GHand(Handed.Left);
+		GHand right = new GHand(Handed.Right);
+
 		// Core application loop
+		Pose uiPose = new(0, 0, -0.5f, Quat.LookDir(-Vec3.Forward));
 		SK.Run(() =>
 		{
 			if (Device.DisplayBlend == DisplayBlend.Opaque)
 				Mesh.Cube.Draw(floorMaterial, floorTransform);
 
+			left.Tick(editableMesh);
+			right.Tick(editableMesh);
 			// UI.Handle("Cube", ref cubePose, cube.Bounds);
 			// cube.Draw(cubePose.ToMatrix());
 			editableMesh.Draw();
+
+			Hand hand = Input.Hand(Handed.Right);
+			Vec3 handPos = hand[FingerId.Index, JointId.Tip].position;
+
+			GMeshPart? part = editableMesh.GetClosestPart(handPos);
+			if (part.HasValue)
+			{
+				switch (part?.Type)
+				{
+					case GMeshPartType.Vertex:
+						{
+							var color = Color.Hex(0xFF0000FF);
+							float thickness = 0.05f;
+							Lines.Add(handPos, editableMesh.vertices.values[part.Value.Index].pos, color, thickness);
+							break;
+						}
+					case GMeshPartType.Edge:
+						{
+
+							var color = Color.Hex(0x00FF00FF);
+							float thickness = 0.05f;
+							var e = editableMesh.edges.values[part.Value.Index];
+							Lines.Add(handPos, editableMesh.vertices.values[e.a].pos, color, thickness);
+							Lines.Add(handPos, editableMesh.vertices.values[e.b].pos, color, thickness);
+							break;
+						}
+					case GMeshPartType.Face:
+						{
+							var color = Color.Hex(0x0000FFFF);
+							float thickness = 0.05f;
+							var f = editableMesh.faces.values[part.Value.Index];
+							Lines.Add(handPos, editableMesh.vertices.values[f.a].pos, color, thickness);
+							Lines.Add(handPos, editableMesh.vertices.values[f.b].pos, color, thickness);
+							Lines.Add(handPos, editableMesh.vertices.values[f.c].pos, color, thickness);
+							break;
+						}
+				}
+			}
+			UI.WindowBegin("Simple Window", ref uiPose);
+			left.DrawUI();
+			right.DrawUI();
+			UI.WindowEnd();
 		});
 	}
 }
