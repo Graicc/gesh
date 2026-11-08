@@ -80,7 +80,16 @@ record struct GHandInput(GHandState state, Pose pose)
 				}
 		}
 
-		Pose pose = newState == GHandState.ThreeFingerPinch ? hand[FingerId.Middle, JointId.Tip].Pose : hand[FingerId.Index, JointId.Tip].Pose;
+		Pose indexPose = hand[FingerId.Index, JointId.Tip].Pose;
+		Pose middlePose = hand[FingerId.Middle, JointId.Tip].Pose;
+		Pose thumbPose = hand[FingerId.Thumb, JointId.Tip].Pose;
+		Pose pose = newState switch
+		{
+			GHandState.Open => indexPose,
+			GHandState.TwoFingerPinch => Pose.Lerp(indexPose, thumbPose, 0.5f),
+			GHandState.ThreeFingerPinch => Pose.Lerp(middlePose, thumbPose, 0.5f),
+			_ => throw new System.NotImplementedException(),
+		};
 		return new GHandInput(newState, pose);
 	}
 
@@ -290,50 +299,52 @@ class Program
 			// cube.Draw(cubePose.ToMatrix());
 			editableMesh.Draw();
 
-			Hand hand = Input.Hand(Handed.Right);
-			Vec3 handPos = hand[FingerId.Index, JointId.Tip].position;
+			// Hand hand = Input.Hand(Handed.Right);
+			// Vec3 handPos = hand[FingerId.Index, JointId.Tip].position;
 
-			GMeshPart? part = editableMesh.GetClosestPart(handPos);
-			if (part.HasValue)
-			{
-				switch (part?.Type)
-				{
-					case GMeshPartType.Vertex:
-						{
-							var color = Color.Hex(0xFF0000FF);
-							float thickness = 0.05f;
-							Lines.Add(handPos, editableMesh.vertices.values[part.Value.Index].pos, color, thickness);
-							break;
-						}
-					case GMeshPartType.Edge:
-						{
+			// GMeshPart? part = editableMesh.GetClosestPart(handPos);
+			// if (part.HasValue)
+			// {
+			// 	switch (part?.Type)
+			// 	{
+			// 		case GMeshPartType.Vertex:
+			// 			{
+			// 				var color = Color.Hex(0xFF0000FF);
+			// 				float thickness = 0.05f;
+			// 				Lines.Add(handPos, editableMesh.vertices.values[part.Value.Index].pos, color, thickness);
+			// 				break;
+			// 			}
+			// 		case GMeshPartType.Edge:
+			// 			{
 
-							var color = Color.Hex(0x00FF00FF);
-							float thickness = 0.05f;
-							var e = editableMesh.edges.values[part.Value.Index];
-							Lines.Add(handPos, editableMesh.vertices.values[e.a].pos, color, thickness);
-							Lines.Add(handPos, editableMesh.vertices.values[e.b].pos, color, thickness);
-							break;
-						}
-					case GMeshPartType.Face:
-						{
-							var color = Color.Hex(0x0000FFFF);
-							float thickness = 0.05f;
-							var f = editableMesh.faces.values[part.Value.Index];
-							Lines.Add(handPos, editableMesh.vertices.values[f.a].pos, color, thickness);
-							Lines.Add(handPos, editableMesh.vertices.values[f.b].pos, color, thickness);
-							Lines.Add(handPos, editableMesh.vertices.values[f.c].pos, color, thickness);
-							break;
-						}
-				}
-			}
-			UI.WindowBegin("Simple Window", ref uiPose);
-			editableMesh.DrawUI();
-			UI.HSeparator();
-			left.DrawUI();
-			UI.HSeparator();
-			right.DrawUI();
-			UI.WindowEnd();
+			// 				var color = Color.Hex(0x00FF00FF);
+			// 				float thickness = 0.05f;
+			// 				var e = editableMesh.edges.values[part.Value.Index];
+			// 				Lines.Add(handPos, editableMesh.vertices.values[e.a].pos, color, thickness);
+			// 				Lines.Add(handPos, editableMesh.vertices.values[e.b].pos, color, thickness);
+			// 				break;
+			// 			}
+			// 		case GMeshPartType.Face:
+			// 			{
+			// 				var color = Color.Hex(0x0000FFFF);
+			// 				float thickness = 0.05f;
+			// 				var f = editableMesh.faces.values[part.Value.Index];
+			// 				Lines.Add(handPos, editableMesh.vertices.values[f.a].pos, color, thickness);
+			// 				Lines.Add(handPos, editableMesh.vertices.values[f.b].pos, color, thickness);
+			// 				Lines.Add(handPos, editableMesh.vertices.values[f.c].pos, color, thickness);
+			// 				break;
+			// 			}
+			// 	}
+			// }
+
+
+			// UI.WindowBegin("Simple Window", ref uiPose);
+			// editableMesh.DrawUI();
+			// UI.HSeparator();
+			// left.DrawUI();
+			// UI.HSeparator();
+			// right.DrawUI();
+			// UI.WindowEnd();
 		});
 	}
 }

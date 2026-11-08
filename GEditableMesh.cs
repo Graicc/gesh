@@ -40,14 +40,14 @@ class GEditableMesh
 
 			var e = edges.values[edgeIndex];
 
-			if (e.a > index)
-			{
-				edges.values[edgeIndex] = new(edges.values[edgeIndex].a + 1, edges.values[edgeIndex].b);
-			}
-			if (e.b > index)
-			{
-				edges.values[edgeIndex] = new(edges.values[edgeIndex].a, edges.values[edgeIndex].b + 1);
-			}
+			// if (e.a > index)
+			// {
+			// 	edges.values[edgeIndex] = new(edges.values[edgeIndex].a + 1, edges.values[edgeIndex].b);
+			// }
+			// if (e.b > index)
+			// {
+			// 	edges.values[edgeIndex] = new(edges.values[edgeIndex].a, edges.values[edgeIndex].b + 1);
+			// }
 		}
 
 		for (int faceIndex = 0; faceIndex < faces.values.Count(); faceIndex++)
@@ -56,18 +56,18 @@ class GEditableMesh
 
 			var f = faces.values[faceIndex];
 
-			if (f.a > index)
-			{
-				faces.values[faceIndex] = new(faces.values[faceIndex].a + 1, faces.values[faceIndex].b, faces.values[faceIndex].c);
-			}
-			if (f.b > index)
-			{
-				faces.values[faceIndex] = new(faces.values[faceIndex].a, faces.values[faceIndex].b + 1, faces.values[faceIndex].c);
-			}
-			if (f.c > index)
-			{
-				faces.values[faceIndex] = new(faces.values[faceIndex].a, faces.values[faceIndex].b, faces.values[faceIndex].c + 1);
-			}
+			// if (f.a > index)
+			// {
+			// 	faces.values[faceIndex] = new(faces.values[faceIndex].a + 1, faces.values[faceIndex].b, faces.values[faceIndex].c);
+			// }
+			// if (f.b > index)
+			// {
+			// 	faces.values[faceIndex] = new(faces.values[faceIndex].a, faces.values[faceIndex].b + 1, faces.values[faceIndex].c);
+			// }
+			// if (f.c > index)
+			// {
+			// 	faces.values[faceIndex] = new(faces.values[faceIndex].a, faces.values[faceIndex].b, faces.values[faceIndex].c + 1);
+			// }
 		}
 
 		return index;
@@ -277,13 +277,13 @@ class GEditableMesh
 
 		foreach (var v in vertices.Items())
 		{
-			Mesh.Sphere.Draw(Material.UI, Matrix.TS(v.pos, 0.05f));
+			Mesh.Sphere.Draw(Material.UI, Matrix.TS(v.pos, 0.03f));
 		}
 
 		foreach (var e in edges.Items())
 		{
-			float thickness = 0.05f;
-			Color color = Color.Hex(0xFF0000FF);
+			float thickness = 0.01f;
+			Color color = Color.Hex(0x000000FF);
 
 			Lines.Add([new LinePoint(vertices.values[e.a].pos, color, thickness), new LinePoint(vertices.values[e.b].pos, color, thickness)]);
 		}

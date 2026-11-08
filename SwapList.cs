@@ -24,7 +24,10 @@ class SwapList<T>
 
 	public T Remove(int index)
 	{
-		free.Enqueue(index);
+		if (!free.Contains(index))
+		{
+			free.Enqueue(index);
+		}
 		return values[index];
 	}
 
