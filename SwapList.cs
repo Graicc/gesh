@@ -24,7 +24,7 @@ class SwapList<T>
 
 	public T Remove(int index)
 	{
-		free.Append(index);
+		free.Enqueue(index);
 		return values[index];
 	}
 

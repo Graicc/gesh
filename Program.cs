@@ -1,4 +1,6 @@
-﻿using StereoKit;
+﻿using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using StereoKit;
 
 namespace gesh;
 
@@ -82,12 +84,17 @@ record struct GHandInput(GHandState state, Pose pose)
 		return new GHandInput(newState, pose);
 	}
 
-	public bool JustTwoFingerPinch(GHandInput last)
+	public bool JustTwoFingerPinched(GHandInput last)
 	{
 		return state == GHandState.TwoFingerPinch && last.state != GHandState.TwoFingerPinch;
 	}
 
-	public bool JustThreeFingerPinch(GHandInput last)
+	public bool JustTwoFingerReleased(GHandInput last)
+	{
+		return state != GHandState.TwoFingerPinch && last.state == GHandState.TwoFingerPinch;
+	}
+
+	public bool JustThreeFingerPinched(GHandInput last)
 	{
 		return state == GHandState.ThreeFingerPinch && last.state != GHandState.ThreeFingerPinch;
 	}
@@ -142,12 +149,21 @@ class GHand(Handed handed)
 		var input = GHandInput.GetInput(handed, lastInput);
 		var pose = input.pose;
 
-		if (input.JustTwoFingerPinch(lastInput))
+		if (input.JustTwoFingerPinched(lastInput))
 		{
 			Grab(mesh, mesh.GetClosestPart(pose.position), pose);
 		}
-		else if (input.state == GHandState.Open)
+
+		if (input.state == GHandState.Open && held.HasValue)
 		{
+			List<GMeshPart> ignore = mesh.GetNeighbors(held.Value);
+			ignore.Add(held.Value);
+			var target = mesh.GetClosestPart(pose.position, ignore);
+			if (target.HasValue)
+			{
+				mesh.TryMerge(held.Value, target.Value);
+			}
+
 			held = null;
 		}
 
@@ -194,56 +210,13 @@ class GHand(Handed handed)
 			}
 		}
 
-		if (input.JustThreeFingerPinch(lastInput))
+		if (input.JustThreeFingerPinched(lastInput))
 		{
 			var part = mesh.GetClosestPart(pose.position);
-			switch (part?.Type)
+			if (part.HasValue)
 			{
-				case GMeshPartType.Vertex:
-					{
-						Vertex v = mesh.vertices.values[part.Value.Index];
-						Vertex newVertex = new Vertex(pose.position, v.norm, v.uv, v.col);
-						int newV = mesh.AddVertex(newVertex);
-						mesh.AddEdge(new GEdge(part.Value.Index, newV));
-						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
-						break;
-					}
-				case GMeshPartType.Edge:
-					{
-						GEdge e = mesh.edges.values[part.Value.Index];
-						Vertex va = mesh.vertices.values[e.a];
-						Vertex newVertex = new Vertex(pose.position, va.norm, va.uv, va.col);
-						int newV = mesh.AddVertex(newVertex);
-
-						mesh.AddEdge(new GEdge(e.a, newV));
-						mesh.AddEdge(new GEdge(e.b, newV));
-
-						mesh.AddFace(new GFace(newV, e.a, e.b));
-
-						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
-						break;
-					}
-				case GMeshPartType.Face:
-					{
-						GFace f = mesh.faces.values[part.Value.Index];
-
-						Vertex va = mesh.vertices.values[f.a];
-						Vertex newVertex = new Vertex(pose.position, va.norm, va.uv, va.col);
-						int newV = mesh.AddVertex(newVertex);
-
-						mesh.AddEdge(new GEdge(f.a, newV));
-						mesh.AddEdge(new GEdge(f.b, newV));
-						mesh.AddEdge(new GEdge(f.c, newV));
-
-						mesh.RemoveFace(part.Value.Index);
-
-						mesh.AddFace(new GFace(newV, f.a, f.b));
-						mesh.AddFace(new GFace(newV, f.b, f.c));
-						mesh.AddFace(new GFace(newV, f.c, f.a));
-
-						Grab(mesh, new GMeshPart(GMeshPartType.Vertex, newV), pose);
-						break;
-					}
+				var newV = mesh.Extend(part.Value, pose.position);
+				Grab(mesh, newV, pose);
 			}
 		}
 
@@ -270,15 +243,21 @@ class Program
 			return;
 
 
-		// Create assets used by the app
-		Pose cubePose = new Pose(0, 0, -0.5f);
-		Model cube = Model.FromMesh(
-			Mesh.GenerateRoundedCube(Vec3.One * 0.1f, 0.02f),
-			Material.UI);
-
 		Matrix floorTransform = Matrix.TS(0, -1.5f, 0, new Vec3(30, 0.1f, 30));
-		Material floorMaterial = new Material("floor.hlsl");
-		floorMaterial.Transparency = Transparency.Blend;
+		Material floorMaterial = new Material("floor.hlsl")
+		{
+			Transparency = Transparency.Blend
+		};
+
+
+		var lights = new List<SHLight>
+		{
+			new() {directionTo = Vec3.Up, color = Color.White}
+		};
+		SphericalHarmonics lighting = SphericalHarmonics.FromLights(lights.ToArray());
+
+		// Renderer.SkyTex = Tex.GenCubemap(lighting);
+		// Renderer.SkyLight = lighting;
 
 		// cube.RootNode.Mesh.SetData()
 
@@ -290,7 +269,10 @@ class Program
 		editableMesh.AddEdge(new GEdge(1, 2));
 		editableMesh.AddEdge(new GEdge(2, 0));
 		// editableMesh.AddFace(new GFace(0, 1, 2));
-		editableMesh.AddFace(new GFace(2, 1, 0));
+		int faceI = editableMesh.AddFace(new GFace(2, 1, 0));
+
+		// editableMesh.Extend(new GMeshPart(GMeshPartType.Face, faceI), new Vec3(0, 0, 0));
+		// editableMesh.TryMerge(new GMeshPart(GMeshPartType.Vertex, 1), new GMeshPart(GMeshPartType.Vertex, 2));
 
 		GHand left = new GHand(Handed.Left);
 		GHand right = new GHand(Handed.Right);
@@ -346,7 +328,10 @@ class Program
 				}
 			}
 			UI.WindowBegin("Simple Window", ref uiPose);
+			editableMesh.DrawUI();
+			UI.HSeparator();
 			left.DrawUI();
+			UI.HSeparator();
 			right.DrawUI();
 			UI.WindowEnd();
 		});
