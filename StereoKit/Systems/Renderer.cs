@@ -1,0 +1,732 @@
+﻿using System;
+using System.Collections.Generic;
+
+namespace StereoKit
+{
+	/// <summary>Do you need to draw something? Well, you're probably in the right place!
+	/// This static class includes a variety of different drawing methods, from rendering 
+	/// Models and Meshes, to setting rendering options and drawing to offscreen surfaces!
+	/// Even better, it's entirely a static class, so you can call it from anywhere :)</summary>
+	public static class Renderer
+	{
+		/// <summary>A queue is used to prevent premature garbage collection
+		/// of the user-defined callbacks.</summary>
+		private static Queue<RenderOnScreenshotCallback> _renderCaptureCallbacks;
+
+		// Wrap a user screenshot callback in a native-compatible delegate, queued
+		// so the GC can't collect it before the native side fires it.
+		private static RenderOnScreenshotCallback QueueScreenshotCallback(ScreenshotCallback onScreenshot)
+		{
+			if (_renderCaptureCallbacks is null) _renderCaptureCallbacks = new Queue<RenderOnScreenshotCallback>();
+			RenderOnScreenshotCallback native = (IntPtr data, TexFormat format, int w, int h, IntPtr context) =>
+			{
+				onScreenshot.Invoke(data, format, w, h);
+				_ = _renderCaptureCallbacks.Dequeue();
+			};
+			_renderCaptureCallbacks.Enqueue(native);
+			return native;
+		}
+
+		/// <summary>The cubemap texture the skybox backdrop draws! This is
+		/// only visible on Opaque displays, since transparent displays have
+		/// the real world behind them already. It's shorthand for the skybox
+		/// material's 'source' texture parameter, and survives material
+		/// swaps.
+		///
+		/// This is purely visual, and does not affect scene lighting. The
+		/// typical way to set up a sky is `Lighting.SetEnvironment`, which
+		/// assigns this along with the lighting it derives from the same
+		/// cubemap. Assign this directly to draw a different sky than the
+		/// one you're lighting with. Assigning null restores StereoKit's
+		/// built-in default sky.</summary>
+		public static Tex SkyboxTex
+		{
+			get  { IntPtr ptr = NativeAPI.render_get_skybox_tex(); return ptr == IntPtr.Zero ? null : new Tex(ptr); }
+			set => NativeAPI.render_set_skybox_tex(value == null ? IntPtr.Zero : value._inst);
+		}
+
+		/// <summary>Deprecated with the skybox/lighting split! Assigning this
+		/// still behaves like the old API: it routes through
+		/// `Lighting.SetEnvironment`, so the cubemap drives reflections and
+		/// ambient light as well as the backdrop. Call that directly, or use
+		/// `SkyboxTex` for just the backdrop.</summary>
+		[Obsolete("Assigning routes through Lighting.SetEnvironment for the old sky + lighting behavior. Call that directly, or use SkyboxTex for just the backdrop.")]
+		public static Tex SkyTex
+		{
+			get => SkyboxTex;
+			set => Lighting.SetEnvironment(value);
+		}
+
+		/// <summary>This is the Material that StereoKit is currently using to
+		/// draw the skybox! It needs a special shader that's tuned for a
+		/// full-screen quad. If you just want to change the skybox image, try
+		/// setting `Renderer.SkyboxTex` instead.
+		///
+		/// This value will never be null! If you try setting this to null, it
+		/// will assign SK's built-in default sky material. If you want to turn
+		/// off the skybox, see `Renderer.SkyboxVisible` instead.
+		///
+		/// Recommended Material settings would be:
+		/// - DepthWrite: false
+		/// - DepthTest: LessOrEq
+		/// - QueueOffset: 100</summary>
+		public static Material SkyboxMaterial {
+			get { return new Material(NativeAPI.render_get_skybox_material()); }
+			set => NativeAPI.render_set_skybox_material(value == null ? IntPtr.Zero : value._inst);
+		}
+
+		/// <summary>Renamed alongside the skybox/lighting split, the material
+		/// behaves the same as before.</summary>
+		[Obsolete("Use SkyboxMaterial")]
+		public static Material SkyMaterial {
+			get => SkyboxMaterial;
+			set => SkyboxMaterial = value;
+		}
+
+		/// <summary>Scene lighting moved to its own class with the
+		/// skybox/lighting split, this is `Lighting.Ambient` now. You can
+		/// still build one through `SphericalHarmonics.FromLights`, or let
+		/// `Lighting.SetEnvironment` derive one from a cubemap.</summary>
+		[Obsolete("Use Lighting.Ambient")]
+		public static SphericalHarmonics SkyLight
+		{
+			get => Lighting.Ambient;
+			set => Lighting.Ambient = value;
+		}
+
+		/// <summary>Is the skybox backdrop drawn? On by default on Opaque
+		/// displays, and never drawn on transparent displays, where the real
+		/// world is the backdrop. This only affects the visual, leaving
+		/// scene lighting from `Lighting` untouched.</summary>
+		public static bool SkyboxVisible
+		{
+			get => NativeAPI.render_get_skybox_visible();
+			set => NativeAPI.render_set_skybox_visible(value);
+		}
+
+		/// <summary>Enables or disables rendering of the skybox.</summary>
+		[Obsolete("Use SkyboxVisible")]
+		public static bool EnableSky
+		{
+			get => SkyboxVisible;
+			set => SkyboxVisible = value;
+		}
+
+		/// <summary>By default, StereoKit renders all first-person layers.
+		/// This is a bit flag that allows you to change which layers StereoKit
+		/// renders for the primary viewpoint. To change what layers a visual
+		/// is on, use a Draw method that includes a RenderLayer as a
+		/// parameter.</summary>
+		public static RenderLayer LayerFilter {
+			set => NativeAPI.render_set_filter(value);
+			get => NativeAPI.render_get_filter();
+		}
+
+		/// <summary>This sets the size of the surface StereoKit renders to, as
+		/// a multiple of the display's own resolution. In XR that's a multiple
+		/// of OpenXR's recommended size, and in a window it's a multiple of the
+		/// window's size, where the result is stretched back over the window at
+		/// present. Note that the final resolution may also be clamped or
+		/// quantized. Values above 1 have no effect in the Simulator and Window
+		/// app modes, since a window is already at the display's real
+		/// resolution. This property still reports what you set, so an app
+		/// that also runs in XR keeps its setting. If known in advance, set
+		/// this via SKSettings in initialization. This is a _very_ costly
+		/// change to make, since it reallocates the render surface. Consider if
+		/// ViewportScaling will work for you instead, and prefer that.</summary>
+		public static float Scaling {
+			get => NativeAPI.render_get_scaling();
+			set => NativeAPI.render_set_scaling(value);
+		}
+
+		/// <summary>This allows you to trivially scale down the area of the
+		/// swapchain that StereoKit renders to! This can be used to boost
+		/// performance in situations where full resolution is not needed, or
+		/// to reduce GPU time. Unlike Scaling, this doesn't resize the render
+		/// surface, so it's cheap enough to change every frame. In the
+		/// Simulator and Window app modes, the first drop below 1 does
+		/// allocate a surface to present through, but it's kept around after
+		/// that. This value is locked to the 0-1 range.</summary>
+		public static float ViewportScaling {
+			get => NativeAPI.render_get_viewport_scaling();
+			set => NativeAPI.render_set_viewport_scaling(value);
+		}
+
+		/// <summary>Allows you to set the multisample (MSAA) level of the
+		/// render surface. Valid values are 1, 2, 4, and 8, though this is
+		/// clamped to what the GPU actually supports. Note that while this
+		/// can greatly smooth out edges, it also increases RAM usage and
+		/// fill rate. How much it costs depends a lot on the GPU! Tiled
+		/// renderers, like the mobile chips in most standalone XR headsets,
+		/// resolve MSAA in tile memory, which makes it nearly free. Desktop
+		/// GPUs instead pay memory bandwidth for the multisampled surface
+		/// and for resolving it, so MSAA is far more expensive there,
+		/// especially at high resolutions. A value of 1 skips the
+		/// multisampled surface entirely. If known in advance, set this via
+		/// SKSettings in initialization. This is a _very_ costly change to
+		/// make. Defaults to 4.</summary>
+		public static int Multisample {
+			get => NativeAPI.render_get_multisample();
+			set => NativeAPI.render_set_multisample(value);
+		}
+
+		/// <summary>This tells if CaptureFilter has been overridden to a
+		/// specific value via `Renderer.OverrideCaptureFilter`.</summary>
+		public static bool HasCaptureFilter => NativeAPI.render_has_capture_filter();
+
+		/// <summary>This is the current render layer mask for Mixed Reality
+		/// Capture, or 2nd person observer rendering. By default, this is
+		/// directly linked to Renderer.LayerFilter, but this behavior can be
+		/// overridden via `Renderer.OverrideCaptureFilter`.</summary>
+		public static RenderLayer CaptureFilter => NativeAPI.render_get_capture_filter();
+
+		/// <summary>How much GPU memory the renderer holds right now, and
+		/// what it's being used for: textures, render targets, meshes, and
+		/// buffers. This is useful for keeping an eye on an app's footprint,
+		/// especially on standalone headsets, where GPU memory comes out of
+		/// the same RAM every running app shares.</summary>
+		public static GPUMemory GPUMemory => NativeAPI.render_get_gpu_memory();
+
+		/// <summary>A Future that finishes once all GPU work submitted so far
+		/// is done, including work from other threads and the XR runtime.
+		/// Wait on it before freeing something the GPU may still be using,
+		/// like an OpenXR swapchain. Draws queued this frame aren't covered
+		/// until the frame renders. Any thread may call this.</summary>
+		/// <returns>A Future for all GPU work submitted so far.</returns>
+		public static Future GPUFuture() => NativeAPI.render_gpu_future();
+
+		/// <summary>This is the gamma space color the renderer will clear
+		/// the screen to when beginning to draw a new frame.</summary>
+		public static Color ClearColor
+		{
+			get => NativeAPI.render_get_clear_color();
+			set => NativeAPI.render_set_clear_color(value);
+		}
+
+		/// <summary>Sets and gets the root transform of the camera! This
+		/// will be the identity matrix by default. The user's head  location
+		/// will then be relative to this point. This is great to use if 
+		/// you're trying to do teleportation, redirected walking, or just 
+		/// shifting the floor around.</summary>
+		public static Matrix CameraRoot
+		{
+			get => NativeAPI.render_get_cam_root();
+			set => NativeAPI.render_set_cam_root(value);
+		}
+
+		/// <summary>For flatscreen applications only! This allows you to
+		/// change the camera projection between perspective and orthographic
+		/// projection. This may be of interest for some category of UI work,
+		/// but is generally a niche piece of functionality.
+		/// 
+		/// Swapping between perspective and orthographic will also switch the
+		/// clipping planes and field of view to the values associated with
+		/// that mode. See `SetClip`/`SetFov` for perspective, and
+		/// `SetOrthoClip`/`SetOrthoSize` for orthographic.</summary>
+		public static Projection Projection
+		{
+			get => NativeAPI.render_get_projection();
+			set => NativeAPI.render_set_projection(value);
+		}
+
+		/// <summary>The CaptureFilter is a layer mask for Mixed Reality
+		/// Capture, or 2nd person observer rendering. On HoloLens and WMR,
+		/// this is the video rendering feature. This allows you to hide, or
+		/// reveal certain draw calls when rendering video output.
+		/// 
+		/// By default, the CaptureFilter will always be the same as
+		/// `Render.LayerFilter`, overriding this will mean this filter no
+		/// longer updates with `LayerFilter`.</summary>
+		/// <param name="useOverrideFilter">Enables (true) or disables (false)
+		/// the overridden filter value provided here.</param>
+		/// <param name="overrideFilter">The filter for capture rendering to
+		/// use. This is ignored if useOverrideFilter is false.</param>
+		public static void OverrideCaptureFilter(bool useOverrideFilter, RenderLayer overrideFilter = RenderLayer.All)
+			=> NativeAPI.render_override_capture_filter(useOverrideFilter, overrideFilter);
+
+		/// <summary>Adds a mesh to the render queue for this frame! If the
+		/// Hierarchy has a transform on it, that transform is combined with
+		/// the Matrix provided here.</summary>
+		/// <param name="mesh">A valid Mesh you wish to draw.</param>
+		/// <param name="material">A Material to apply to the Mesh.</param>
+		/// <param name="transform">A Matrix that will transform the mesh
+		/// from Model Space into the current Hierarchy Space.</param>
+		public static void Add(Mesh mesh, Material material, Matrix transform)
+			=> NativeAPI.render_add_mesh(mesh._inst, material._inst, transform, Color.White, RenderLayer.Layer0);
+		/// <summary>Adds a mesh to the render queue for this frame! If the
+		/// Hierarchy has a transform on it, that transform is combined with
+		/// the Matrix provided here.</summary>
+		/// <param name="mesh">A valid Mesh you wish to draw.</param>
+		/// <param name="material">A Material to apply to the Mesh.</param>
+		/// <param name="transform">A Matrix that will transform the mesh
+		/// from Model Space into the current Hierarchy Space.</param>
+		/// <param name="colorLinear">A per-instance linear space color value
+		/// to pass into the shader! Normally this gets used like a material
+		/// tint. If you're  adventurous and don't need per-instance colors,
+		/// this is a great spot to pack in extra per-instance data for the
+		/// shader!</param>
+		/// <param name="layer">All visuals are rendered using a layer 
+		/// bit-flag. By default, all layers are rendered, but this can be 
+		/// useful for filtering out objects for different rendering 
+		/// purposes! For example: rendering a mesh over the user's head from
+		/// a 3rd person perspective, but filtering it out from the 1st
+		/// person perspective.</param>
+		public static void Add(Mesh mesh, Material material, Matrix transform, Color colorLinear, RenderLayer layer = RenderLayer.Layer0)
+			=> NativeAPI.render_add_mesh(mesh._inst, material._inst, transform, colorLinear, layer);
+
+		/// <summary>Adds a Model to the render queue for this frame! If the
+		/// Hierarchy has a transform on it, that transform is combined with
+		/// the Matrix provided here.</summary>
+		/// <param name="model">A valid Model you wish to draw.</param>
+		/// <param name="transform">A Matrix that will transform the Model
+		/// from Model Space into the current Hierarchy Space.</param>
+		public static void Add(Model model, Matrix transform)
+			=> NativeAPI.render_add_model(model._inst, transform, Color.White, RenderLayer.Layer0);
+		/// <summary>Adds a Model to the render queue for this frame! If the
+		/// Hierarchy has a transform on it, that transform is combined with
+		/// the Matrix provided here.</summary>
+		/// <param name="model">A valid Model you wish to draw.</param>
+		/// <param name="transform">A Matrix that will transform the Model
+		/// from Model Space into the current Hierarchy Space.</param>
+		/// <param name="colorLinear">A per-instance linear space color value
+		/// to pass into the shader! Normally this gets used like a material
+		/// tint. If you're  adventurous and don't need per-instance colors,
+		/// this is a great spot to pack in extra per-instance data for the
+		/// shader!</param>
+		/// <param name="layer">All visuals are rendered using a layer 
+		/// bit-flag. By default, all layers are rendered, but this can be 
+		/// useful for filtering out objects for different rendering 
+		/// purposes! For example: rendering a mesh over the user's head from
+		/// a 3rd person perspective, but filtering it out from the 1st
+		/// person perspective.</param>
+		public static void Add(Model model, Matrix transform, Color colorLinear, RenderLayer layer = RenderLayer.Layer0)
+			=> NativeAPI.render_add_model(model._inst, transform, colorLinear, layer);
+
+		/// <summary>Set the near and far clipping planes of the camera!
+		/// These are important to z-buffer quality, especially when using
+		/// low bit depth z-buffers as recommended for devices like the
+		/// HoloLens. The smaller the range between the near and far planes,
+		/// the better your z-buffer will look! If you see flickering on
+		/// objects that are overlapping, try making the range smaller.
+		/// 
+		/// These values only affect perspective mode projection, which is the
+		/// default projection mode.</summary>
+		/// <param name="nearPlane">The GPU discards pixels that are too
+		/// close to the camera, this is that distance! It must be larger
+		/// than zero, due to the projection math, which also means that
+		/// numbers too close to zero will produce z-fighting artifacts. This
+		/// has an enforced minimum of 0.001, but you should probably stay
+		/// closer to 0.1.</param>
+		/// <param name="farPlane">At what distance from the camera does the
+		/// GPU discard pixel? This is not true distance, but rather Z-axis
+		/// distance from zero in View Space coordinates!</param>
+		public static void SetClip(float nearPlane = 0.08f, float farPlane = 50)
+			=> NativeAPI.render_set_clip(nearPlane, farPlane);
+
+		/// <summary>This retrieves the current near and far clipping planes
+		/// for the perspective matrix of the primary draw surface.</summary>
+		/// <param name="nearPlane">The GPU discards pixels that are too
+		/// close to the camera, this is that distance! It will be larger
+		/// than zero, due to the projection math, which also means that
+		/// numbers too close to zero will produce z-fighting artifacts. This
+		/// has an enforced minimum of 0.001, but will probably be closer to
+		/// 0.1.</param>
+		/// <param name="farPlane">At what distance from the camera does the
+		/// GPU discard pixel? This is not true distance, but rather Z-axis
+		/// distance from zero in View Space coordinates!</param>
+		public static void GetClip(out float nearPlane, out float farPlane)
+			=> NativeAPI.render_get_clip(out nearPlane, out farPlane);
+
+		/// <summary>Only works for 2D windowed modes! This updates the
+		/// camera's projection matrix with a new vertical field of view.
+		/// 
+		/// This value only affects perspective mode projection, which is the
+		/// default projection mode.</summary>
+		/// <param name="verticalFieldOfViewDegrees">Vertical field of view in degrees.
+		/// </param>
+		public static void SetFOV(float verticalFieldOfViewDegrees)
+			=> NativeAPI.render_set_fov(verticalFieldOfViewDegrees);
+
+		/// <summary>Only works for 2D windowed modes! This retrieves the
+		/// vertical field of view of the camera's projection matrix when in
+		/// perspective projection mode.</summary>
+		/// <returns>The vertical field of view in degrees.</returns>
+		public static float GetFOV()
+			=> NativeAPI.render_get_fov();
+
+		/// <summary>Only works for 2D windowed modes! This updates the
+		/// camera's projection matrix with a new vertical field of view.
+		/// 
+		/// This value only affects perspective mode projection, which is the
+		/// default projection mode.</summary>
+		public static float FOV { get => NativeAPI.render_get_fov(); set => NativeAPI.render_set_fov(value); }
+
+		/// <summary>Set the near and far clipping planes of the camera!
+		/// These are important to z-buffer quality, especially when using
+		/// low bit depth z-buffers as recommended for devices like the
+		/// HoloLens. The smaller the range between the near and far planes,
+		/// the better your z-buffer will look! If you see flickering on
+		/// objects that are overlapping, try making the range smaller.
+		/// 
+		/// These values only affect orthographic mode projection, which is 
+		/// only available in 2D window modes.</summary>
+		/// <param name="nearPlane">The GPU discards pixels that are too
+		/// close to the camera, this is that distance!</param>
+		/// <param name="farPlane">At what distance from the camera does the
+		/// GPU discard pixel? This is not true distance, but rather Z-axis
+		/// distance from zero in View Space coordinates!</param>
+		public static void SetOrthoClip(float nearPlane = 0, float farPlane = 50)
+			=> NativeAPI.render_set_ortho_clip(nearPlane, farPlane);
+
+		/// <summary>This sets the size of the orthographic projection's
+		/// viewport. You can use this feature to zoom in and out of the scene.
+		/// 
+		/// This value only affects orthographic mode projection, which is only
+		/// available in 2D window modes.</summary>
+		/// <param name="viewportHeightMeters">The vertical size of the
+		/// projection's viewport, in meters.</param>
+		public static void SetOrthoSize(float viewportHeightMeters)
+			=> NativeAPI.render_set_ortho_size(viewportHeightMeters);
+
+		/// <summary>This sets the size of the orthographic projection's
+		/// viewport. You can use this feature to zoom in and out of the scene.
+		/// 
+		/// This value only affects orthographic mode projection, which is only
+		/// available in 2D window modes.</summary>
+		public static float OrthoSize { get => NativeAPI.render_get_ortho_size(); set => NativeAPI.render_set_ortho_size(value); }
+
+		/// <summary>This retrieves the size the primary render surface's view
+		/// when using orthographic projection mode.</summary>
+		/// <returns>The vertical size of the projection's viewport, in meters.
+		/// </returns>
+		public static float GetOrthoSize()
+			=> NativeAPI.render_get_ortho_size();
+
+		/// <summary>Renders a Material onto a rendertarget texture! StereoKit uses a 4 vert quad stretched
+		/// over the surface of the texture, and renders the material onto it to the texture.</summary>
+		/// <param name="toRendertarget">A texture that's been set up as a render target!</param>
+		/// <param name="material">This material is rendered onto the texture! Set it up like you would
+		/// if you were applying it to a plane, or quad mesh.</param>
+		public static void Blit(Tex toRendertarget, Material material)
+			=> NativeAPI.render_blit(toRendertarget._inst, material._inst);
+
+		/// <summary>Schedules a screenshot for the end of the frame! The view
+		/// will be rendered from the given position at the given point, with a
+		/// resolution the same size as the screen's surface. It'll be saved as
+		/// a JPEG or PNG file depending on the filename extension provided.
+		/// </summary>
+		/// <param name="filename">Filename to write the screenshot to! This
+		/// will be a PNG if the extension ends with (case insensitive)
+		/// ".png", and will be a 90 quality JPEG if it ends with anything
+		/// else.</param>
+		/// <param name="from">Viewpoint location.</param>
+		/// <param name="at">Direction the viewpoint is looking at.</param>
+		/// <param name="width">Size of the screenshot horizontally, in pixels.
+		/// </param>
+		/// <param name="height">Size of the screenshot vertically, in pixels.
+		/// </param>
+		/// <param name="fieldOfViewDegrees">The angle of the viewport, in 
+		/// degrees.</param>
+		public static void Screenshot(string filename, Vec3 from, Vec3 at, int width, int height, float fieldOfViewDegrees = 90)
+			=> NativeAPI.render_screenshot(filename, 90, Pose.LookAt(from, at), width, height, fieldOfViewDegrees);
+
+		/// <summary>Schedules a screenshot for the end of the frame! The view
+		/// will be rendered from the given pose, with a resolution the same
+		/// size as the screen's surface. It'll be saved as a JPEG or PNG file
+		/// depending on the filename extension provided.</summary>
+		/// <param name="filename">Filename to write the screenshot to! This
+		/// will be a PNG if the extension ends with (case insensitive)
+		/// ".png", and will be a JPEG if it ends with anything else.</param>
+		/// <param name="fileQuality">For JPEG files, this is the compression
+		/// quality of the file from 0-100, 100 being highest quality, 0 being
+		/// smallest size. SK uses a default of 90 here.</param>
+		/// <param name="viewpoint">Viewpoint location and orientation.</param>
+		/// <param name="width">Size of the screenshot horizontally, in pixels.
+		/// </param>
+		/// <param name="height">Size of the screenshot vertically, in pixels.
+		/// </param>
+		/// <param name="fieldOfViewDegrees">The angle of the viewport, in 
+		/// degrees.</param>
+		public static void Screenshot(string filename, int fileQuality, Pose viewpoint, int width, int height, float fieldOfViewDegrees = 90)
+			=> NativeAPI.render_screenshot(filename, fileQuality, viewpoint, width, height, fieldOfViewDegrees);
+
+		/// <summary>Schedules a screenshot for the end of the frame! The view
+		/// will be rendered from the given pose, with a resolution the same
+		/// size as the screen's surface. It'll be saved as a JPEG or PNG file
+		/// depending on the filename extension provided.</summary>
+		/// <param name="filename">Filename to write the screenshot to! This
+		/// will be a PNG if the extension ends with (case insensitive)
+		/// ".png", and will be a 90 quality JPEG if it ends with anything
+		/// else.</param>
+		/// <param name="viewpoint">Viewpoint location and orientation.</param>
+		/// <param name="width">Size of the screenshot horizontally, in pixels.
+		/// </param>
+		/// <param name="height">Size of the screenshot vertically, in pixels.
+		/// </param>
+		/// <param name="fieldOfViewDegrees">The angle of the viewport, in 
+		/// degrees.</param>
+		public static void Screenshot(string filename, Pose viewpoint, int width, int height, float fieldOfViewDegrees = 90)
+			=> NativeAPI.render_screenshot(filename, 90, viewpoint, width, height, fieldOfViewDegrees);
+
+		/// <summary>Schedules a screenshot for the end of the frame! The view
+		/// will be rendered from the given position at the given point, with a
+		/// resolution the same size as the screen's surface. This overload
+		/// allows for retrieval of the color data directly from the render
+		/// thread! You can use the color data directly by saving/processing it
+		/// inside your callback, or you can keep the data alive for as long as
+		/// it is referenced.</summary>
+		/// <param name="onScreenshot">A callback that receives the captured
+		/// pixel data, its format, and its dimensions for the requested
+		/// viewpoint.</param>
+		/// <param name="from">Viewpoint location.</param>
+		/// <param name="at">Direction the viewpoint is looking at.</param>
+		/// <param name="width">Size of the screenshot horizontally, in pixels.
+		/// </param>
+		/// <param name="height">Size of the screenshot vertically, in pixels.
+		/// </param>
+		/// <param name="fieldOfViewDegrees">The angle of the viewport, in 
+		/// degrees.</param>
+		/// <param name="texFormat">The pixel format of the color data.</param>
+		public static void Screenshot(ScreenshotCallback onScreenshot, Vec3 from, Vec3 at, int width, int height, float fieldOfViewDegrees = 90, TexFormat texFormat = TexFormat.Rgba32)
+			=> NativeAPI.render_screenshot_capture(QueueScreenshotCallback(onScreenshot), Pose.LookAt(from, at), width, height, fieldOfViewDegrees, texFormat, IntPtr.Zero);
+
+		/// <summary>Schedules a screenshot for the end of the frame! The view
+		/// will be rendered from the given position at the given point, with a
+		/// resolution the same size as the screen's surface. This overload
+		/// allows for retrieval of the color data directly from the render
+		/// thread! You can use the color data directly by saving/processing it
+		/// inside your callback, or you can keep the data alive for as long as
+		/// it is referenced.</summary>
+		/// <param name="onScreenshot">A callback that receives the captured
+		/// pixel data, its format, and its dimensions for the requested
+		/// viewpoint.</param>
+		/// <param name="camera">A TRS matrix representing the location and
+		/// orientation of the camera. This matrix gets inverted later on, so
+		/// no need to do it yourself.</param>
+		/// <param name="projection">The projection matrix describes how the
+		/// geometry is flattened onto the draw surface. Normally, you'd use 
+		/// Matrix.Perspective, and occasionally Matrix.Orthographic might be
+		/// helpful as well.</param>
+		/// <param name="layerFilter">This is a bit flag that allows you to
+		/// change which layers StereoKit renders for this particular render
+		/// viewpoint. To change what layers a visual is on, use a Draw
+		/// method that includes a RenderLayer as a parameter.</param>
+		/// <param name="clear">Describes if and how the rendertarget should
+		/// be cleared before rendering. Note that clearing the target is
+		/// unaffected by the viewport, so this will clean the entire 
+		/// surface!</param>
+		/// <param name="texFormat">The pixel format of the color data.</param>
+		public static void Screenshot(ScreenshotCallback onScreenshot, Matrix camera, Matrix projection, int width, int height, RenderLayer layerFilter = RenderLayer.All, RenderClear clear = RenderClear.All, Rect viewport = default(Rect), TexFormat texFormat = TexFormat.Rgba32)
+			=> NativeAPI.render_screenshot_viewpoint(QueueScreenshotCallback(onScreenshot), camera, projection, width, height, layerFilter, clear, viewport, texFormat, IntPtr.Zero);
+
+		/// <summary>This renders the current scene to the indicated 
+		/// rendertarget texture, from the specified viewpoint. This call 
+		/// enqueues a render that occurs immediately before the screen 
+		/// itself is rendered.</summary>
+		/// <param name="toRendertarget">The texture to which the scene will
+		/// be rendered to. This must be a Rendertarget type texture.</param>
+		/// <param name="camera">A TRS matrix representing the location and
+		/// orientation of the camera. This matrix gets inverted later on, so
+		/// no need to do it yourself.</param>
+		/// <param name="projection">The projection matrix describes how the
+		/// geometry is flattened onto the draw surface. Normally, you'd use 
+		/// Matrix.Perspective, and occasionally Matrix.Orthographic might be
+		/// helpful as well.</param>
+		/// <param name="layerFilter">This is a bit flag that allows you to
+		/// change which layers StereoKit renders for this particular render
+		/// viewpoint. To change what layers a visual is on, use a Draw
+		/// method that includes a RenderLayer as a parameter.</param>
+		/// <param name="materialVariant">Specifies which Material variant
+		/// should be used for rendering. 0 will be the normal default
+		/// material, any others will generally be application-defined by
+		/// setting up each Material's Variant with specific shaders. If a
+		/// Material has no corresponding variant, it will not be drawn.
+		/// </param>
+		/// <param name="clear">Describes if and how the rendertarget should
+		/// be cleared before rendering. Note that clearing the target is
+		/// unaffected by the viewport, so this will clean the entire 
+		/// surface!</param>
+		/// <param name="viewport">Allows you to specify a region of the
+		/// rendertarget to draw to! This is in normalized coordinates, 0-1.
+		/// If the width of this value is zero, then this will render to the
+		/// entire texture.</param>
+		public static void RenderTo(Tex toRendertarget, Matrix camera, Matrix projection, RenderLayer layerFilter = RenderLayer.All, int materialVariant = 0, RenderClear clear = RenderClear.All, Rect viewport = default(Rect))
+			=> RenderTo(toRendertarget, 0, camera, projection, new RenderSettings { layerFilter = layerFilter, materialVariant = materialVariant, clear = clear, viewport = viewport });
+
+		/// <inheritdoc cref="RenderTo(Tex, Matrix, Matrix, RenderLayer, int, RenderClear, Rect)"/>
+		/// <param name="toTargetIndex">Index of the render target's array
+		/// texture we want to draw to.</param>
+		public static void RenderTo(Tex toRendertarget, int toTargetIndex, Matrix camera, Matrix projection, RenderLayer layerFilter = RenderLayer.All, int materialVariant = 0, RenderClear clear = RenderClear.All, Rect viewport = default(Rect))
+			=> RenderTo(toRendertarget, toTargetIndex, camera, projection, new RenderSettings { layerFilter = layerFilter, materialVariant = materialVariant, clear = clear, viewport = viewport });
+
+		/// <summary>This renders the current scene to the indicated
+		/// rendertarget texture from the specified viewpoint, using a
+		/// RenderSettings struct for everything else - including
+		/// tile-friendly post-processing effects! This call enqueues a
+		/// render that occurs immediately before the screen itself is
+		/// rendered.</summary>
+		/// <param name="toRendertarget">The texture to which the scene will
+		/// be rendered to. This must be a Rendertarget type texture.</param>
+		/// <param name="camera">A TRS matrix representing the location and
+		/// orientation of the camera. This matrix gets inverted later on, so
+		/// no need to do it yourself.</param>
+		/// <param name="projection">The projection matrix describes how the
+		/// geometry is flattened onto the draw surface. Normally, you'd use
+		/// Matrix.Perspective, and occasionally Matrix.Orthographic might be
+		/// helpful as well.</param>
+		/// <param name="settings">Settings for this render pass, a
+		/// `default` here means all layers, the default material variant,
+		/// clear everything to transparent black, a full-target viewport,
+		/// and no post-processing.</param>
+		public static void RenderTo(Tex toRendertarget, Matrix camera, Matrix projection, RenderSettings settings)
+			=> RenderTo(toRendertarget, 0, camera, projection, settings);
+
+		/// <inheritdoc cref="RenderTo(Tex, Matrix, Matrix, RenderSettings)"/>
+		/// <param name="toTargetIndex">Index of the render target's array
+		/// texture we want to draw to.</param>
+		public static void RenderTo(Tex toRendertarget, int toTargetIndex, Matrix camera, Matrix projection, RenderSettings settings)
+		{
+			RenderSettingsNative native = settings.ToNative(out var pin);
+			NativeAPI.render_to(toRendertarget._inst, toTargetIndex, in camera, in projection, 1, in native);
+			if (pin.IsAllocated) pin.Free();
+		}
+
+		/// <summary>Multi-view variant of RenderTo. Queues a single render
+		/// pass that draws the active list into N views at once, with one
+		/// camera + projection per view, writing into N consecutive layers
+		/// of an array rendertarget. The number of views is capped by the
+		/// engine's max-views constant. Like the single-view RenderTo,
+		/// this is queued for the next pipeline frame.</summary>
+		/// <param name="toRendertarget">An array or cubemap rendertarget
+		/// with at least `cameras.Length` layers.</param>
+		/// <param name="cameras">View transforms, one per view.</param>
+		/// <param name="projections">Projection matrices, one per view.
+		/// Length must match `cameras`.</param>
+		/// <param name="layerFilter">Bit flag for which render layers to
+		/// include this pass.</param>
+		/// <param name="materialVariant">Which material variant to use.</param>
+		/// <param name="clear">Whether and how to clear the rendertarget.</param>
+		/// <param name="viewport">Subregion in normalized 0-1 coordinates.</param>
+		public static void RenderTo(Tex toRendertarget, in Matrix[] cameras, in Matrix[] projections, RenderLayer layerFilter = RenderLayer.All, int materialVariant = 0, RenderClear clear = RenderClear.All, Rect viewport = default(Rect))
+			=> RenderTo(toRendertarget, cameras, projections, new RenderSettings { layerFilter = layerFilter, materialVariant = materialVariant, clear = clear, viewport = viewport });
+
+		/// <inheritdoc cref="RenderTo(Tex, Matrix, Matrix, RenderSettings)"/>
+		/// <param name="cameras">View transforms, one per view.</param>
+		/// <param name="projections">Projection matrices, one per view.
+		/// Length must match `cameras`.</param>
+		public static void RenderTo(Tex toRendertarget, in Matrix[] cameras, in Matrix[] projections, RenderSettings settings)
+		{
+			if (cameras.Length != projections.Length)
+				throw new ArgumentException("cameras and projections must have the same length");
+			RenderSettingsNative native = settings.ToNative(out var pin);
+			NativeAPI.render_to(toRendertarget._inst, 0, cameras, projections, cameras.Length, in native);
+			if (pin.IsAllocated) pin.Free();
+		}
+
+		/// <summary>Sets the main display's post-process chain! The
+		/// Materials apply in array order, at most 2 per pass, and calling
+		/// this with no arguments clears the chain. Post-processing here is
+		/// tile-renderer friendly! Effects run as subpasses that stay in
+		/// tile memory on mobile GPUs, and they apply to the main display
+		/// and to screenshots.
+		///
+		/// A post-process Material's shader reads the scene through a
+		/// pixel-local input attachment named 'color' (in HLSL,
+		/// `[[vk::input_attachment_index(0)]] SubpassInput&lt;float4&gt; color;`
+		/// read with `color.SubpassLoad()`), draws as a bufferless
+		/// fullscreen triangle from SV_VertexID, and so cannot have vertex
+		/// inputs. It may also read depth through an input attachment named
+		/// 'depth' at index 1. Materials that don't qualify are rejected
+		/// with an error log. Regular textures and Material parameters work
+		/// normally, and can be animated per-frame.</summary>
+		/// <param name="postProcessChain">Materials whose shaders qualify
+		/// as post-process effects, applied in order. Empty clears the
+		/// chain.</param>
+		public static void SetPostProcess(params Material[] postProcessChain)
+		{
+			IntPtr[] materials = new IntPtr[postProcessChain?.Length ?? 0];
+			for (int i = 0; i < materials.Length; i++)
+				materials[i] = postProcessChain[i]?._inst ?? IntPtr.Zero;
+			NativeAPI.render_set_post_process(materials, materials.Length);
+		}
+
+		/// <summary>This attaches a texture globally to every shader texture
+		/// with this name, wherever a Material has left that texture at its
+		/// default. StereoKit uses this to provide the reflection cubemap as
+		/// `sk_cubemap`. It can be used for things like shadowmaps, wind
+		/// data, etc. A texture set on the Material itself always wins over
+		/// a global one.</summary>
+		/// <param name="name">The name of the texture in the shader. Only the
+		/// first 31 characters are used, so keep names shorter than that.
+		/// </param>
+		/// <param name="tex">The texture to assign globally. Setting null here
+		/// will clear any texture that is currently bound.</param>
+		public static void SetGlobalTexture(string name, Tex tex) => NativeAPI.render_set_global_tex(name, tex?._inst ?? IntPtr.Zero);
+
+		/// <summary>Gets the texture last assigned globally with
+		/// `SetGlobalTexture`.</summary>
+		/// <param name="name">The name of the texture in the shader.</param>
+		/// <returns>The global texture with this name, or null if none is
+		/// set.</returns>
+		public static Tex GetGlobalTexture(string name) { IntPtr ptr = NativeAPI.render_get_global_tex(name); return ptr == IntPtr.Zero ? null : new Tex(ptr); }
+
+		/// <summary>This attaches a buffer globally to every shader cbuffer
+		/// with this name, wherever a Material has left that buffer unset.
+		/// It can be used for things like shadowmaps, wind data, etc.
+		/// </summary>
+		/// <param name="name">The name of the cbuffer in the shader. Only the
+		/// first 31 characters are used, so keep names shorter than that.
+		/// </param>
+		/// <param name="buffer">The data buffer you would like to bind, or
+		/// null to unbind.</param>
+		public static void SetGlobalBuffer<T>(string name, MaterialBuffer<T> buffer) where T:struct
+			=> NativeAPI.render_set_global_buffer(name, buffer?._inst ?? IntPtr.Zero);
+		/// <summary>This attaches a buffer globally to every shader cbuffer
+		/// with this name, wherever a Material has left that buffer unset.
+		/// This overload is for clearing a buffer with null.</summary>
+		/// <param name="name">The name of the cbuffer in the shader.</param>
+		/// <param name="buffer">Must be null, use a MaterialBuffer to bind
+		/// data.</param>
+		public static void SetGlobalBuffer(string name, object buffer)
+		{
+			if (buffer != null) throw new ArgumentException("Use a MaterialBuffer type here!");
+			NativeAPI.render_set_global_buffer(name, IntPtr.Zero);
+		}
+
+		/// <summary>This attaches a texture resource globally across all
+		/// shaders, by register number. A global set this way overrides any
+		/// texture a Material sets in that register.</summary>
+		/// <param name="textureRegister">The texture resource register the
+		/// texture will bind to.</param>
+		/// <param name="tex">The texture to assign globally. Setting null here
+		/// will clear any texture that is currently bound.</param>
+		[Obsolete("Shaders now share globals by name, use SetGlobalTexture(string, Tex) instead.")]
+		public static void SetGlobalTexture(int textureRegister, Tex tex) => NativeAPI.render_global_texture(textureRegister, tex?._inst ?? IntPtr.Zero);
+
+		/// <summary>This attaches a buffer resource globally across all
+		/// shaders, by register number.</summary>
+		/// <param name="bufferRegister">Valid values are 3-15. This is the 
+		/// register id that this data will be bound to. In HLSL, you'll see
+		/// the slot id for '3' indicated like this `: register(b3)`</param>
+		/// <param name="buffer">The data buffer you would like to bind, or
+		/// null to unbind.</param>
+		[Obsolete("Shaders now share globals by name, use SetGlobalBuffer(string, MaterialBuffer) instead.")]
+		public static void SetGlobalBuffer<T>(int bufferRegister, MaterialBuffer<T> buffer) where T:struct
+		{
+			NativeAPI.render_global_buffer(bufferRegister, buffer?._inst ?? IntPtr.Zero);
+		}
+		/// <summary>This attaches a buffer resource globally across all
+		/// shaders, by register number.</summary>
+		/// <param name="bufferRegister">Valid values are 3-15. This is the 
+		/// register id that this data will be bound to. In HLSL, you'll see
+		/// the slot id for '3' indicated like this `: register(b3)`</param>
+		/// <param name="buffer">The data buffer you would like to bind, or
+		/// null to unbind.</param>
+		[Obsolete("Shaders now share globals by name, use SetGlobalBuffer(string, object) instead.")]
+		public static void SetGlobalBuffer(int bufferRegister, object buffer)
+		{
+			if (buffer != null) throw new ArgumentException("Use a MaterialBuffer type here!");
+			NativeAPI.render_global_buffer(bufferRegister, IntPtr.Zero);
+		}
+	}
+}

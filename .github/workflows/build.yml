@@ -1,0 +1,332 @@
+name: Build Package
+on: 
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        type: string
+        required: true
+      upload:
+        description: 'Upload to NuGet'
+        type: boolean
+        required: false
+        default: false
+      commitChanges:
+        description: 'Commit changed files (versions, build size, etc.)'
+        type: boolean
+        required: false
+        default: false
+      major:
+        description: 'Major version number'
+        type: number
+        required: true
+      minor:
+        description: 'Minor version number'
+        type: number
+        required: true
+      patch:
+        description: 'Patch version number'
+        type: number
+        required: true
+      pre:
+        description: 'Prerelease version number'
+        type: number
+        required: false
+        default: 0
+      preName:
+        description: 'Prerelease name'
+        type: string
+        required: false
+        default: 'preview'
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        type: string
+        required: true
+      upload:
+        description: 'Upload to NuGet'
+        type: boolean
+        required: false
+        default: false
+      commitChanges:
+        description: 'Commit changed files (versions, build size, etc.)'
+        type: boolean
+        required: false
+        default: false
+      major:
+        description: 'Major version number'
+        type: string
+        required: true
+      minor:
+        description: 'Minor version number'
+        type: string
+        required: true
+      patch:
+        description: 'Patch version number'
+        type: string
+        required: true
+      pre:
+        description: 'Prerelease version number'
+        type: string
+        required: false
+        default: '0'
+      preName:
+        description: 'Prerelease name'
+        type: string
+        required: false
+        default: 'preview'
+    secrets:
+      NUGET_KEY:
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+
+###########################################
+
+  build-windows:
+    runs-on: windows-latest
+    env:
+      CPM_SOURCE_CACHE: .deps_cache
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.branch }}
+    - uses: lukka/get-cmake@v4.3.3
+
+    - name: Get Cache
+      uses: actions/cache@v4
+      with:
+        key: DependencyCache
+        path: |
+          .deps_cache
+
+    - name: Set Version
+      shell: pwsh
+      run: ./tools/Set-Version.ps1 -major ${{inputs.major}} -minor ${{inputs.minor}} -patch ${{inputs.patch}} -pre ${{inputs.pre}} -preName ${{inputs.preName}}
+
+    - name: Build Native Win32 x64
+      run: |
+        cmake --preset Win32_x64_Release
+        cmake --build --preset Win32_x64_Release
+    - name: Build Native Win32 Arm64
+      run: |
+        cmake --preset Win32_Arm64_Release
+        cmake --build --preset Win32_Arm64_Release
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-windows
+        path: bin/distribute/
+
+    - name: Upload Tools
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-windows
+        path: bin/tools/
+
+###########################################
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    env:
+      CPM_SOURCE_CACHE: .deps_cache
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.branch }}
+    - uses: lukka/get-cmake@v4.3.3
+
+    - name: Get Cache
+      uses: actions/cache@v4
+      with:
+        key: DependencyCache
+        path: |
+          .deps_cache
+
+    - name: Set up Android NDK
+      uses: nttld/setup-ndk@v1.4.2
+      id: setup-ndk
+      with:
+        ndk-version: r25c
+        local-cache: true
+
+    - name: Restore Android Symlinks
+      run: |
+        directory="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        find "$directory" -type l | while read link; do
+            current_target=$(readlink "$link")
+            new_target="$directory/$(basename "$current_target")"
+            ln -sf "$new_target" "$link"
+            echo "Changed $(basename "$link") from $current_target to $new_target"
+        done
+
+    - name: Install Android SDK Platform
+      run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-32"
+
+    - name: Install Prerequisites
+      run: |
+        sudo apt-get update
+        sudo apt-get install clang llvm lld ninja-build pkg-config libx11-dev libxrandr-dev libxcursor-dev libxi-dev libfontconfig-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
+
+    - name: Set Version
+      shell: pwsh
+      run: ./tools/Set-Version.ps1 -major ${{inputs.major}} -minor ${{inputs.minor}} -patch ${{inputs.patch}} -pre ${{inputs.pre}} -preName ${{inputs.preName}}
+  
+    - name: Build Native Linux x64
+      run: |
+        cmake --preset Linux_x64_Release
+        cmake --build --preset Linux_x64_Release
+        
+    - name: Build Native Android ARM64
+      run: |
+        cmake --preset Android_Arm64_Release
+        cmake --build --preset Android_Arm64_Release
+      env:
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        
+    - name: Build Native Android x64
+      run: |
+        cmake --preset Android_x64_Release
+        cmake --build --preset Android_x64_Release
+      env:
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+    - name: Install Cross-Compile Support for ARM64
+      uses: cyberjunk/gha-ubuntu-cross@v5
+      with:
+        arch: arm64
+    - name: Install cross-compilation tools
+      run: |
+        # gha-ubuntu-cross omits -security, so Multi-Arch:same libs skew from amd64
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ $(lsb_release -cs)-security main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64-security.list
+        sudo apt-get update
+        sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu lld:arm64 libx11-dev:arm64 libxrandr-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 libfontconfig-dev:arm64 libwayland-dev:arm64 libxkbcommon-dev:arm64 libdecor-0-dev:arm64
+
+    - name: Build Linux Arm64
+      run: |
+        cmake --preset Linux_Arm64_Release
+        cmake --build --preset Linux_Arm64_Release
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-linux
+        path: bin/distribute/
+
+    - name: Upload Tools
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-linux
+        path: bin/tools/
+
+###########################################
+
+  build-macos:
+    runs-on: macos-26
+    env:
+      CPM_SOURCE_CACHE: .deps_cache
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.branch }}
+    - uses: lukka/get-cmake@v4.3.3
+
+    - name: Get Cache
+      uses: actions/cache@v4
+      with:
+        key: DependencyCache
+        path: |
+          .deps_cache
+
+    - name: Set Version
+      shell: pwsh
+      run: ./tools/Set-Version.ps1 -major ${{inputs.major}} -minor ${{inputs.minor}} -patch ${{inputs.patch}} -pre ${{inputs.pre}} -preName ${{inputs.preName}}
+
+    - name: Build Native macOS ARM64
+      run: |
+        cmake --preset MacOS_Arm64_Release
+        cmake --build --preset MacOS_Arm64_Release
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-macos
+        path: bin/distribute/
+
+    - name: Upload Tools
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-macos
+        path: bin/tools/
+
+  ###########################################
+
+  build-package:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-linux, build-macos]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.branch }}
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with: 
+        dotnet-version: 7.0.x
+
+    - name: Get Artifacts from Previous
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+        pattern: binaries-*
+        path: bin/distribute/
+
+    - name: Get Tools from Previous
+      uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+        pattern: tools-*
+        path: bin/tools/
+
+    - name: Set Version
+      shell: pwsh
+      run: ./tools/Set-Version.ps1 -major ${{inputs.major}} -minor ${{inputs.minor}} -patch ${{inputs.patch}} -pre ${{inputs.pre}} -preName ${{inputs.preName}}
+
+    - name: Build Package and Upload
+      if: inputs.upload == true
+      shell: pwsh
+      run: ./tools/Build-Nuget.ps1 -nobuild -notest -upload -key ${{ secrets.NUGET_KEY }}
+
+    - name: Build Package without Upload
+      if: inputs.upload == false
+      shell: pwsh
+      run: ./tools/Build-Nuget.ps1 -nobuild -notest
+
+    - name: Commit Build Changes
+      if: inputs.commitChanges == true && inputs.pre == '0'
+      run: |
+        git config --global user.name 'SK Automation'
+        git config --global user.email 'automation@stereokit.net'
+        git branch
+        git add --all
+        git status
+        git commit -m "v${{inputs.major}}.${{inputs.minor}}.${{inputs.patch}}"
+
+        git tag -a v${{inputs.major}}.${{inputs.minor}}.${{inputs.patch}} -m "v${{inputs.major}}.${{inputs.minor}}.${{inputs.patch}}"
+        git push
+        git push origin v${{inputs.major}}.${{inputs.minor}}.${{inputs.patch}}
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: package
+        path: bin/StereoKit.*.nupkg

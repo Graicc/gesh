@@ -1,0 +1,71 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace StereoKit
+{
+	/// <summary>Certain features in XR require explicit permissions from the
+	/// operating system and user! This is typically for features that surface
+	/// sensitive data like eye gaze, or objects in the user's room. This is
+	/// often complicated by the fact that permissions aren't standardized
+	/// across XR runtimes, making these permissions fragile and a pain to work
+	/// with.
+	/// 
+	/// This class attempts to manage feature permissions in a nice
+	/// cross-platform manner that handles runtime specific differences. You
+	/// will still need to add permission strings to your app's metadata file
+	/// (like AndroidManifest.xml), but this class will handle figuring out
+	/// which strings in the metadata to actually use.
+	/// 
+	/// On Android, if you use a Service or Context instead of an Activity for
+	/// your app (unusual), StereoKit will not be able to manage permissions
+	/// for you!
+	/// 
+	/// On platforms that don't use permissions, like Win32 or Linux, these
+	/// functions will behave as though everything is granted automatically.
+	/// </summary>
+	public static class Permission
+	{
+		/// <summary>Retreives the current state of a particular permission.
+		/// This is a fast check, so it's fine to call frequently.</summary>
+		/// <param name="permission">The permission you're interested in.</param>
+		/// <returns>Check `PermissionState` for details.</returns>
+		public static PermissionState State(PermissionType permission)
+			=> NativeAPI.permission_state(permission);
+
+		/// <summary>Might requesting this permission interrupt the user with a
+		/// popup? This is a prediction from how sensitive the platform
+		/// considers the permission, not a promise. The system can still
+		/// grant one silently, most often when the user already approved a
+		/// related permission earlier in the session, so a true here means
+		/// "may interrupt" rather than "will".
+		///
+		/// There's no way to know for certain in advance, since the answer
+		/// depends on what the user has already agreed to.</summary>
+		/// <param name="permission">The permission you're interested in.</param>
+		/// <returns>True if the permission requires user interaction, false
+		/// otherwise.</returns>
+		public static bool IsInteractive(PermissionType permission)
+			=> NativeAPI.permission_is_interactive(permission);
+
+		/// <summary>This sends off a request to the OS for one or more
+		/// permissions! If a permission IsInteractive, then this will bring
+		/// up a popup that the user may need to interact with. Otherwise, this
+		/// will silently approve the permission. This means that the
+		/// permission may take an arbitrary amount of time before it's
+		/// approved, or declined.
+		///
+		/// Requesting multiple permissions in a single call is preferable to
+		/// chaining individual requests yourself, since the OS gets to present
+		/// them together and you avoid the risk of a follow-up request getting
+		/// dropped while an earlier popup is still up.
+		///
+		/// Any permissions that aren't known on the current platform are
+		/// skipped with a warning. If your app is an Android Service, this
+		/// function will do nothing.
+		/// </summary>
+		/// <param name="permissions">The permission(s) to request.</param>
+		public static void Request(params PermissionType[] permissions)
+			=> NativeAPI.permission_request(permissions, permissions.Length);
+	}
+}

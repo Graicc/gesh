@@ -1,0 +1,1745 @@
+/* SPDX-License-Identifier: MIT */
+/* The authors below grant copyright rights under the MIT license:
+ * Copyright (c) 2019-2024 Nick Klingensmith
+ * Copyright (c) 2024 Qualcomm Technologies, Inc.
+ */
+
+// profiler.h must come first to avoid SAL macro pollution from sal.h
+#include "../libraries/profiler.h"
+
+#include "render.h"
+#include "render_.h"
+#include "world.h"
+#include "lighting.h"
+#include "vert_format.h"
+#include "../_stereokit.h"
+#include "../device.h"
+#include "../libraries/stref.h"
+#include "../sk_math_dx.h"
+#include "../sk_memory.h"
+#include "../spherical_harmonics.h"
+#include "../stereokit.h"
+#include "../hierarchy.h"
+#include "../asset_types/mesh.h"
+#include "../asset_types/texture.h"
+#include "../asset_types/texture_.h"
+#include "../asset_types/shader.h"
+#include "../asset_types/material.h"
+#include "../asset_types/model.h"
+#include "../asset_types/animation.h"
+#include "../systems/input.h"
+#include "../hands/input_hand.h"
+#include "../platforms/platform.h"
+
+#include <sk_renderer.h>
+#include <stddef.h>
+#include <stdio.h>
+
+#define STBIW_WINDOWS_UTF8
+#include "../libraries/stb_image_write.h"
+
+using namespace DirectX;
+
+namespace sk {
+
+static void render_list_execute(render_list_t list, render_layer_ filter, int32_t material_variant);
+
+///////////////////////////////////////////
+
+// Sizes the globally-bound shader buffer's per-view arrays (sk_view,
+// sk_proj, sk_viewproj, etc.). Must match SK_MAX_VIEWS in stereokit.hlsli.
+#define SK_MAX_VIEWS 6
+
+struct render_transform_buffer_t {
+	XMMATRIX world;
+	color128 color;
+};
+struct render_global_buffer_t {
+	XMMATRIX view[SK_MAX_VIEWS];
+	XMMATRIX proj[SK_MAX_VIEWS];
+	XMMATRIX proj_inv[SK_MAX_VIEWS];
+	XMMATRIX viewproj[SK_MAX_VIEWS];
+	vec4     lighting[7];
+	vec4     light_dir_to;
+	vec4     light_color;
+	vec4     camera_pos[SK_MAX_VIEWS];
+	vec4     camera_dir[SK_MAX_VIEWS];
+	vec4     fingertip[2];
+	vec4     cubemap_i;
+	vec4     screen_size; // {width, height, 1/width, 1/height}
+	float    time;
+	uint32_t view_count;
+	uint32_t eye_offset;
+};
+
+struct render_screenshot_t {
+	void        (*render_on_screenshot_callback)(void* data, tex_format_ format, int32_t width, int32_t height, void* context);
+	void*         context;
+	matrix        camera;
+	matrix        projection;
+	rect_t        viewport;
+	int32_t       width;
+	int32_t       height;
+	render_layer_ layer_filter;
+	render_clear_ clear;
+	tex_format_   tex_format;
+};
+
+// Pending async readback for screenshot
+struct render_pending_readback_t {
+	void               (*callback)(void* data, tex_format_ format, int32_t width, int32_t height, void* context);
+	void*                context;
+	tex_format_          format;
+	int32_t              width;
+	int32_t              height;
+	tex_t                color_surface;  // MSAA color target (kept alive until readback completes)
+	tex_t                depth_surface;  // MSAA depth target (kept alive until readback completes)
+	tex_t                resolve_tex;    // Resolved texture being read back
+	skr_tex_readback_t   readback;
+};
+
+enum render_action_type_ {
+	render_action_type_none,
+	render_action_type_viewpoint,
+	render_action_type_global_texture,
+	render_action_type_global_buffer,
+	render_action_type_compute,
+};
+
+struct render_action_viewpoint_t {
+	tex_t         rendertarget;
+	int32_t       rendertarget_index;
+	matrix        cameras    [SK_MAX_VIEWS];
+	matrix        projections[SK_MAX_VIEWS];
+	int32_t       view_count;
+	rect_t        viewport;
+	render_layer_ layer_filter;
+	int32_t       material_variant;
+	render_clear_ clear;
+	color128      clear_color;
+	material_t    post_process[SKR_PASS_MAX_POSTFX]; // ref'd until drawn
+	int32_t       post_process_count;
+};
+
+// sk_renderer matches global names on their first 31 characters
+typedef char render_global_name_t[32];
+
+struct render_global_t {
+	render_global_name_t name; // empty for deprecated register globals
+	int32_t              slot; // -1 for named globals
+	tex_t                tex;
+	material_buffer_t    buffer;
+};
+
+struct render_action_global_texture_t {
+	render_global_name_t name;
+	int32_t              slot;
+	tex_t                texture;
+};
+
+struct render_action_global_buffer_t {
+	render_global_name_t name;
+	int32_t              slot;
+	material_buffer_t    buffer;
+};
+
+struct render_action_compute_t {
+	compute_t compute;
+	uint32_t  groups[3];
+};
+
+struct render_action_t {
+	render_action_type_ type;
+	union {
+		render_action_viewpoint_t      viewpoint;
+		render_action_global_texture_t global_texture;
+		render_action_global_buffer_t  global_buffer;
+		render_action_compute_t        compute;
+	};
+};
+
+///////////////////////////////////////////
+
+struct render_state_t {
+	bool32_t                initialized;
+	skr_render_list_t       gpu_render_list;
+
+	material_buffer_t       shader_globals;
+	matrix                  camera_root;
+	matrix                  camera_root_final;
+	matrix                  camera_root_final_inv;
+	quat                    camera_root_final_rot;
+	matrix                  default_camera_proj;
+	matrix                  sim_origin;
+	matrix                  sim_head;
+
+	projection_             projection_type;
+	vec2                    clip_planes;
+	float                   fov;
+	float                   ortho_near_clip;
+	float                   ortho_far_clip;
+	float                   ortho_viewport_height;
+
+	render_global_buffer_t  global_buffer;
+	color128                clear_col;
+	render_list_t           list_primary;
+	float                   viewport_scale;
+	render_layer_           primary_filter;
+	render_layer_           capture_filter;
+	bool                    use_capture_filter;
+	array_t<render_global_t> globals;     // what draws bind, updated through the action list
+	array_t<render_global_t> globals_app; // what the app last set, for render_get_global_tex
+
+	array_t<render_screenshot_t>       screenshot_list;
+	array_t<render_pending_readback_t> pending_readbacks;
+	array_t<render_action_t>           render_action_list;
+	array_t<material_t>                post_process;
+
+	array_t<render_list_t>  list_stack;
+	render_list_t           list_active;
+};
+static render_state_t local = {};
+
+///////////////////////////////////////////
+
+void render_save_to_file(void* data, tex_format_ format, int width, int height, void* context);
+static void render_list_add_to(render_list_t list, const render_item_t *item);
+static void render_global_bind_tex   (const char* name, int32_t slot, tex_t             texture);
+static void render_global_bind_buffer(const char* name, int32_t slot, material_buffer_t buffer);
+
+///////////////////////////////////////////
+
+bool render_init() {
+	profiler_zone();
+
+	local = {};
+
+	local.initialized           = true;
+	local.sim_origin            = matrix_identity;
+	local.sim_head              = matrix_identity;
+	local.clip_planes           = {0.02f, 50};
+	local.fov                   = 90;
+	local.ortho_near_clip       = 0.0f;
+	local.ortho_far_clip        = 50.0f;
+	local.ortho_viewport_height = 1.0f;
+	local.clear_col             = color128{0,0,0,0};
+	local.list_primary          = nullptr;
+	local.viewport_scale        = 1;
+	local.primary_filter        = render_layer_all_first_person;
+	local.capture_filter        = render_layer_all_first_person;
+	local.list_active           = nullptr;
+
+	local.shader_globals  = material_buffer_create(sizeof(local.global_buffer));
+
+	skr_render_list_create(&local.gpu_render_list);
+
+	// Setup a default camera
+	render_set_clip    (local.clip_planes.x, local.clip_planes.y);
+	render_set_cam_root(matrix_identity);
+
+	local.list_primary = render_list_create(render_list_refs_none);
+	render_list_set_id(local.list_primary, "sk/render/primary_renderlist");
+	render_list_push  (local.list_primary);
+
+	hierarchy_init();
+
+	return true;
+}
+
+///////////////////////////////////////////
+
+void render_shutdown() {
+	render_list_pop();
+	render_list_release(local.list_active);
+	render_list_release(local.list_primary);
+	local.list_stack        .free();
+	local.screenshot_list   .free();
+
+	for (int32_t i = 0; i < local.post_process.count; i++)
+		material_release(local.post_process[i]);
+	local.post_process.free();
+
+	// Drain in-flight readbacks so their GPU resources aren't leaked at
+	// shutdown - blocks on each future, unlike the per-frame poll path.
+	for (int32_t i = 0; i < local.pending_readbacks.count; i++) {
+		render_pending_readback_t* pending = &local.pending_readbacks[i];
+		skr_future_wait(&pending->readback.future);
+
+		pending->callback(pending->readback.data, pending->format, pending->width, pending->height, pending->context);
+
+		skr_tex_readback_destroy(&pending->readback);
+		tex_release(pending->resolve_tex);
+		tex_release(pending->depth_surface);
+		tex_release(pending->color_surface);
+	}
+	local.pending_readbacks .free();
+
+	// Release refs held by any pending actions before freeing the list
+	for (int32_t i = 0; i < local.render_action_list.count; i++) {
+		render_action_t* a = &local.render_action_list[i];
+		switch (a->type) {
+		case render_action_type_none:      break;
+		case render_action_type_viewpoint:
+			for (int32_t p = 0; p < a->viewpoint.post_process_count; p++)
+				material_release(a->viewpoint.post_process[p]);
+			tex_release(a->viewpoint.rendertarget);
+			break;
+		case render_action_type_global_texture: tex_release            (a->global_texture.texture); break;
+		case render_action_type_global_buffer:  material_buffer_release(a->global_buffer .buffer ); break;
+		case render_action_type_compute:        compute_release        (a->compute       .compute); break;
+		}
+	}
+	local.render_action_list.free();
+
+	for (int32_t i = 0; i < local.globals.count; i++) {
+		render_global_t* g = &local.globals[i];
+		render_global_bind_tex   (g->name, g->slot, nullptr);
+		render_global_bind_buffer(g->name, g->slot, nullptr);
+		tex_release            (g->tex);
+		material_buffer_release(g->buffer);
+	}
+	for (int32_t i = 0; i < local.globals_app.count; i++) {
+		tex_release            (local.globals_app[i].tex);
+		material_buffer_release(local.globals_app[i].buffer);
+	}
+	local.globals    .free();
+	local.globals_app.free();
+	material_buffer_release(local.shader_globals);
+
+	skr_render_list_destroy(&local.gpu_render_list);
+
+	local = {};
+
+	hierarchy_shutdown();
+}
+
+///////////////////////////////////////////
+
+const skr_vert_type_t* render_get_default_vert() {
+	return vert_format_get_skr(VERT_FORMAT_DEFAULT);
+}
+
+///////////////////////////////////////////
+
+void render_step() {
+	profiler_zone();
+
+	hierarchy_step();
+}
+
+///////////////////////////////////////////
+
+void render_set_clip(float near_plane, float far_plane) {
+	// near_plane will throw divide by zero errors if it's zero! So we'll
+	// clamp it :) Anything this low will probably look bad due to depth
+	// artifacts though.
+	near_plane = fmaxf(0.001f, near_plane);
+	local.clip_planes = { near_plane, far_plane };
+	render_update_projection();
+}
+
+///////////////////////////////////////////
+
+void render_get_clip(float* out_near_plane, float* out_far_plane) {
+	if (out_near_plane) *out_near_plane = local.clip_planes.x;
+	if (out_far_plane ) *out_far_plane  = local.clip_planes.y;
+}
+
+///////////////////////////////////////////
+
+void render_set_fov(float vertical_field_of_view_degrees) {
+	local.fov = vertical_field_of_view_degrees;
+	render_update_projection();
+}
+
+///////////////////////////////////////////
+
+float render_get_fov() {
+	return local.fov;
+}
+
+///////////////////////////////////////////
+
+void render_set_ortho_size(float viewport_height_meters) {
+	local.ortho_viewport_height = viewport_height_meters;
+	render_update_projection();
+}
+
+///////////////////////////////////////////
+
+float render_get_ortho_size() {
+	return local.ortho_viewport_height;
+}
+
+///////////////////////////////////////////
+
+void render_set_ortho_clip(float near_plane, float far_plane) {
+	local.ortho_near_clip = near_plane;
+	local.ortho_far_clip  = far_plane;
+	render_update_projection();
+}
+
+///////////////////////////////////////////
+
+void render_set_projection(projection_ proj) {
+	local.projection_type = proj;
+	render_update_projection();
+}
+
+///////////////////////////////////////////
+
+projection_ render_get_projection() {
+	return local.projection_type;
+}
+
+///////////////////////////////////////////
+
+void render_update_projection() {
+	if (!local.initialized) return;
+
+	// Both paths need the aspect ratio
+	float aspect = (float)device_display_get_width() / device_display_get_height();
+
+	if (local.projection_type == projection_perspective) {
+		
+		math_fast_to_matrix(
+			XMMatrixPerspectiveFovRH(
+				local.fov * deg2rad,
+				aspect,
+				local.clip_planes.x,
+				local.clip_planes.y),
+			&local.default_camera_proj);
+
+		// Update the FoV data
+		backend_xr_type_ type = backend_xr_get_type();
+		if (type == backend_xr_type_none ||
+			type == backend_xr_type_simulator) {
+
+			fov_info_t fov;
+			fov.top    = local.fov * 0.5f;
+			fov.bottom = -fov.top;
+			fov.right  =  fov.top * aspect;
+			fov.left   = -fov.right;
+			device_data.display_fov = fov;
+		}
+	} else {
+
+		math_fast_to_matrix(
+			XMMatrixOrthographicRH(
+				aspect*local.ortho_viewport_height,
+				local.ortho_viewport_height,
+				local.ortho_near_clip,
+				local.ortho_far_clip),
+			&local.default_camera_proj);
+	}
+}
+
+///////////////////////////////////////////
+
+const char *render_fmt_name(tex_format_ format) {
+	switch (format) {
+	case tex_format_bgra32:           return "bgra32_sRGB";
+	case tex_format_bgra32_linear:    return "bgra32_linear";
+	case tex_format_rgba32:           return "rgba32_sRGB";
+	case tex_format_rgba32_linear:    return "rgba32_linear";
+	case tex_format_rgb10a2:          return "rgb10a2";
+	case tex_format_rg11b10:          return "rg11b10";
+	case tex_format_rgba64un:         return "rgba64un";
+	case tex_format_rgba64sn:         return "rgba64sn";
+	case tex_format_rgba64ui:         return "rgba64ui";
+	case tex_format_rgba64si:         return "rgba64si";
+	case tex_format_rgba64f:          return "rgba64f";
+	case tex_format_rgba128:          return "rgba128";
+	case tex_format_r8:               return "r8";
+	case tex_format_r8sn:             return "r8sn";
+	case tex_format_r8ui:             return "r8ui";
+	case tex_format_r8si:             return "r8si";
+	case tex_format_r8_srgb:          return "r8_sRGB";
+	case tex_format_r8g8:             return "r8g8";
+	case tex_format_r16:              return "r16";
+	case tex_format_r16sn:            return "r16sn";
+	case tex_format_r16ui:            return "r16ui";
+	case tex_format_r16si:            return "r16si";
+	case tex_format_r16f:             return "r16f";
+	case tex_format_r32:              return "r32";
+	case tex_format_r32ui:            return "r32ui";
+	case tex_format_r32si:            return "r32si";
+	case tex_format_rgb9e5:           return "rgb9e5";
+	case tex_format_depthstencil:     return "depth24_stencil8";
+	case tex_format_depth32:          return "depth32";
+	case tex_format_depth16:          return "depth16";
+	case tex_format_depth32s8:        return "depth32_stencil8";
+	case tex_format_depth16s8:        return "depth16_stencil8";
+	case tex_format_bc1_rgb_srgb:     return "bc1_rgb_sRGB";
+	case tex_format_bc1_rgb:          return "bc1_rgb";
+	case tex_format_bc1_rgba_srgb:    return "bc1_rgba_sRGB";
+	case tex_format_bc1_rgba:         return "bc1_rgba";
+	case tex_format_bc2_rgba_srgb:    return "bc2_rgba_sRGB";
+	case tex_format_bc2_rgba:         return "bc2_rgba";
+	case tex_format_bc3_rgba_srgb:    return "bc3_rgba_sRGB";
+	case tex_format_bc3_rgba:         return "bc3_rgba";
+	case tex_format_bc4_r:            return "bc4_r";
+	case tex_format_bc4_rsn:          return "bc4_rsn";
+	case tex_format_bc5_rg:           return "bc5_rg";
+	case tex_format_bc5_rgsn:         return "bc5_rgsn";
+	case tex_format_bc6h_rgbuf:       return "bc6h_rgbuf";
+	case tex_format_bc6h_rgbf:        return "bc6h_rgbf";
+	case tex_format_bc7_rgba_srgb:    return "bc7_rgba_sRGB";
+	case tex_format_bc7_rgba:         return "bc7_rgba";
+	case tex_format_etc1_rgb:         return "etc1_rgb";
+	case tex_format_etc1_rgb_srgb:    return "etc1_rgb_sRGB";
+	case tex_format_etc2_rgba_srgb:   return "etc2_rgba_sRGB";
+	case tex_format_etc2_rgba:        return "etc2_rgba";
+	case tex_format_etc2_r11:         return "etc2_r11";
+	case tex_format_etc2_rg11:        return "etc2_rg11";
+	case tex_format_pvrtc1_rgb_srgb:  return "pvrtc1_rgb_sRGB";
+	case tex_format_pvrtc1_rgb:       return "pvrtc1_rgb";
+	case tex_format_pvrtc1_rgba_srgb: return "pvrtc1_rgba_sRGB";
+	case tex_format_pvrtc1_rgba:      return "pvrtc1_rgba";
+	case tex_format_pvrtc2_rgba_srgb: return "pvrtc2_rgba_sRGB";
+	case tex_format_pvrtc2_rgba:      return "pvrtc2_rgba";
+	case tex_format_astc4x4_rgba_srgb:return "astc4x4_rgba_sRGB";
+	case tex_format_astc4x4_rgba:     return "astc4x4_rgba";
+	case tex_format_astc6x6_rgba_srgb:return "astc6x6_rgba_sRGB";
+	case tex_format_astc6x6_rgba:     return "astc6x6_rgba";
+	case tex_format_astc8x8_rgba_hdr: return "astc8x8_rgba_hdr";
+	case tex_format_atc_rgb:          return "atc_rgb";
+	case tex_format_atc_rgba:         return "atc_rgba";
+	case tex_format_nv12:             return "nv12";
+	case tex_format_p010:             return "p010";
+	case tex_format_yuv420p:          return "yuv420p";
+	case tex_format_none:             return "none";
+	default:                          return "Unknown";
+	}
+}
+
+///////////////////////////////////////////
+
+tex_format_ render_preferred_depth_fmt() {
+	depth_mode_ mode = sk_get_settings().depth_mode;
+	switch (mode) {
+	case depth_mode_default:
+#if defined(SK_OS_ANDROID)
+		return tex_format_depth16;
+#else
+		return tex_format_depth32;
+#endif
+		break;
+	case depth_mode_d16:     return tex_format_depth16;
+	case depth_mode_d32:     return tex_format_depth32;
+	case depth_mode_stencil: return tex_format_depthstencil;
+	default: return tex_format_depth16;
+	}
+}
+
+///////////////////////////////////////////
+
+matrix render_get_projection_matrix() {
+	return local.default_camera_proj;
+}
+
+///////////////////////////////////////////
+
+vec2 render_get_clip() {
+	return local.clip_planes;
+}
+
+///////////////////////////////////////////
+
+matrix render_get_cam_root() {
+	return local.camera_root;
+}
+
+///////////////////////////////////////////
+
+matrix render_get_cam_final() {
+	return local.camera_root_final;
+}
+
+///////////////////////////////////////////
+
+matrix render_get_cam_final_inv() {
+	return local.camera_root_final_inv;
+}
+
+///////////////////////////////////////////
+
+pose_t render_cam_final_transform(pose_t local_space) {
+	return pose_t{ 
+		matrix_transform_pt(local.camera_root_final, local_space.position),
+		local_space.orientation * local.camera_root_final_rot
+	};
+}
+
+///////////////////////////////////////////
+
+render_list_t render_get_primary_list() {
+	render_list_addref(local.list_primary);
+	return local.list_primary;
+}
+
+///////////////////////////////////////////
+
+void render_set_cam_root(const matrix &cam_root) {
+	local.camera_root           = cam_root;
+	local.camera_root_final     = local.sim_head * cam_root * local.sim_origin;
+	local.camera_root_final_rot = matrix_extract_rotation(local.camera_root_final);
+	matrix_inverse(local.camera_root_final, local.camera_root_final_inv);
+}
+
+///////////////////////////////////////////
+
+void render_set_sim_origin(pose_t pose) {
+	local.sim_origin = pose_matrix_inv(pose);
+	render_set_cam_root(render_get_cam_root());
+}
+
+///////////////////////////////////////////
+
+void render_set_sim_head(pose_t pose) {
+	local.sim_head = pose_matrix(pose);
+	render_set_cam_root(render_get_cam_root());
+}
+
+///////////////////////////////////////////
+
+render_layer_ render_get_filter() {
+	return local.primary_filter;
+}
+
+///////////////////////////////////////////
+
+void render_set_filter(render_layer_ layer_filter) {
+	local.primary_filter = layer_filter;
+}
+
+///////////////////////////////////////////
+
+void render_set_scaling(float texture_scale) {
+	sk_get_settings_ref_mut()->render_scaling = fminf(2, fmaxf(0.2f, texture_scale));
+}
+
+///////////////////////////////////////////
+
+float render_get_scaling() {
+	return sk_get_settings_ref()->render_scaling;
+}
+
+///////////////////////////////////////////
+
+// Applies the render scaling setting to a surface size. The setting itself
+// stays untouched, so a capped caller doesn't affect XR runs of the same app.
+void render_scaled_size(int32_t width, int32_t height, float max_scale, int32_t* out_width, int32_t* out_height) {
+	float scale = fminf(max_scale, render_get_scaling());
+
+	// An unscaled surface renders straight into the swapchain image, or
+	// resolves into it, and both of those need the sizes to match exactly.
+	if (scale == 1) {
+		*out_width  = width;
+		*out_height = height;
+		return;
+	}
+
+	// Scaled surfaces resolve into an intermediate of their own size instead,
+	// so they're free to round. Even dimensions keep MSAA resolves happy.
+	int32_t w = (int32_t)(width  * scale) & ~1;
+	int32_t h = (int32_t)(height * scale) & ~1;
+	*out_width  = w < 2 ? 2 : w;
+	*out_height = h < 2 ? 2 : h;
+}
+
+///////////////////////////////////////////
+
+void render_set_viewport_scaling(float viewport_rect_scale) {
+	local.viewport_scale = fmaxf(0,fminf(1,viewport_rect_scale));
+}
+
+///////////////////////////////////////////
+
+float render_get_viewport_scaling(void) {
+	return local.viewport_scale;
+}
+
+///////////////////////////////////////////
+
+void render_set_multisample(int32_t display_tex_multisample) {
+	int32_t val;
+	if      (display_tex_multisample <= 1)  val = 1;
+	else if (display_tex_multisample <= 3)  val = 2;
+	else if (display_tex_multisample <= 7)  val = 4;
+	else                                    val = 8;
+
+	int32_t max_msaa = skr_get_max_msaa_samples();
+	if (val > max_msaa) val = max_msaa;
+
+	sk_get_settings_ref_mut()->render_multisample = val;
+}
+
+///////////////////////////////////////////
+
+int32_t render_get_multisample() {
+	return sk_get_settings_ref()->render_multisample;
+}
+
+///////////////////////////////////////////
+
+void render_override_capture_filter(bool32_t use_override_filter, render_layer_ layer_filter) {
+	local.use_capture_filter = use_override_filter;
+	local.capture_filter    = layer_filter;
+}
+
+///////////////////////////////////////////
+
+render_layer_ render_get_capture_filter() {
+	return local.use_capture_filter
+		? local.capture_filter
+		: local.primary_filter;
+}
+
+///////////////////////////////////////////
+
+bool32_t render_has_capture_filter() {
+	return local.use_capture_filter;
+}
+
+///////////////////////////////////////////
+
+gpu_memory_t render_get_gpu_memory() {
+	skr_mem_stats_t stats;
+	skr_mem_get_stats(&stats);
+
+	gpu_memory_t result = {};
+	result.reserved_bytes     = stats.reserved_bytes;
+	result.used_bytes         = stats.used_bytes;
+	result.peak_bytes         = stats.peak_used_bytes;
+	result.texture_bytes      = stats.category_bytes[skr_mem_category_texture];
+	result.target_bytes       = stats.category_bytes[skr_mem_category_target];
+	result.mesh_bytes         = stats.category_bytes[skr_mem_category_geometry];
+	result.buffer_bytes       = stats.category_bytes[skr_mem_category_buffer];
+	result.transient_bytes    = stats.category_bytes[skr_mem_category_frame] + stats.category_bytes[skr_mem_category_staging];
+	result.budget_bytes       = stats.budget_bytes;
+	result.device_usage_bytes = stats.device_usage_bytes;
+	return result;
+}
+
+///////////////////////////////////////////
+
+void render_queue_compute(compute_t compute, uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) {
+	if (compute == nullptr) return;
+	compute_addref(compute);
+
+	render_action_t action = {};
+	action.type             = render_action_type_compute;
+	action.compute.compute  = compute;
+	action.compute.groups[0]= group_count_x;
+	action.compute.groups[1]= group_count_y;
+	action.compute.groups[2]= group_count_z;
+	local.render_action_list.add(action);
+}
+
+///////////////////////////////////////////
+
+static void render_global_name(const char* name, render_global_name_t out_name) {
+	strncpy(out_name, name, sizeof(render_global_name_t) - 1);
+	out_name[sizeof(render_global_name_t) - 1] = '\0';
+}
+
+///////////////////////////////////////////
+
+static int32_t render_global_find(const array_t<render_global_t>* globals, const char* name, int32_t slot) {
+	for (int32_t i = 0; i < globals->count; i++) {
+		if ((*globals)[i].slot == slot && strcmp((*globals)[i].name, name) == 0)
+			return i;
+	}
+	return -1;
+}
+
+///////////////////////////////////////////
+
+static render_global_t* render_global_get(array_t<render_global_t>* globals, const char* name, int32_t slot) {
+	int32_t idx = render_global_find(globals, name, slot);
+	if (idx < 0) {
+		render_global_t g = {};
+		render_global_name(name, g.name);
+		g.slot = slot;
+		idx    = globals->add(g);
+	}
+	return &(*globals)[idx];
+}
+
+///////////////////////////////////////////
+
+static void render_global_set_tex(array_t<render_global_t>* globals, const char* name, int32_t slot, tex_t texture) {
+	if (texture == nullptr && render_global_find(globals, name, slot) < 0) return;
+
+	render_global_t* g = render_global_get(globals, name, slot);
+	if (texture != nullptr) tex_addref(texture);
+	tex_release(g->tex);
+	g->tex = texture;
+	if (g->tex == nullptr && g->buffer == nullptr)
+		globals->remove((int32_t)(g - globals->data));
+}
+
+///////////////////////////////////////////
+
+static void render_global_set_buffer(array_t<render_global_t>* globals, const char* name, int32_t slot, material_buffer_t buffer) {
+	if (buffer == nullptr && render_global_find(globals, name, slot) < 0) return;
+
+	render_global_t* g = render_global_get(globals, name, slot);
+	if (buffer != nullptr) material_buffer_addref(buffer);
+	material_buffer_release(g->buffer);
+	g->buffer = buffer;
+	if (g->tex == nullptr && g->buffer == nullptr)
+		globals->remove((int32_t)(g - globals->data));
+}
+
+///////////////////////////////////////////
+
+static void render_global_bind_tex(const char* name, int32_t slot, tex_t texture) {
+	const skr_tex_t* gpu = texture == nullptr ? nullptr
+		: texture->fallback != nullptr        ? &texture->fallback->gpu_tex
+		:                                       &texture->gpu_tex;
+	if (slot < 0) skr_renderer_set_global_tex    (name, gpu);
+	else          skr_renderer_set_global_texture(slot, gpu);
+}
+
+///////////////////////////////////////////
+
+static void render_global_bind_buffer(const char* name, int32_t slot, material_buffer_t buffer) {
+	const skr_buffer_t* gpu = buffer != nullptr ? &buffer->buffer : nullptr;
+	if (slot < 0) skr_renderer_set_global_buffer   (name, gpu);
+	else          skr_renderer_set_global_constants(slot, gpu);
+}
+
+///////////////////////////////////////////
+
+static void render_global_queue_tex(const char* name, int32_t slot, tex_t texture) {
+	render_global_set_tex(&local.globals_app, name, slot, texture);
+
+	if (texture != nullptr) tex_addref(texture);
+	render_action_t action = {};
+	action.type                   = render_action_type_global_texture;
+	action.global_texture.slot    = slot;
+	action.global_texture.texture = texture;
+	render_global_name(name, action.global_texture.name);
+	local.render_action_list.add(action);
+}
+
+///////////////////////////////////////////
+
+static void render_global_queue_buffer(const char* name, int32_t slot, material_buffer_t buffer) {
+	if (buffer != nullptr) material_buffer_addref(buffer);
+	render_action_t action = {};
+	action.type                 = render_action_type_global_buffer;
+	action.global_buffer.slot   = slot;
+	action.global_buffer.buffer = buffer;
+	render_global_name(name, action.global_buffer.name);
+	local.render_action_list.add(action);
+}
+
+///////////////////////////////////////////
+
+// sk_renderer holds no ref, so it gets the new value before the old is released
+static void render_global_apply_tex(const render_action_global_texture_t* action) {
+	render_global_bind_tex(action->name, action->slot, action->texture);
+	render_global_set_tex (&local.globals, action->name, action->slot, action->texture);
+}
+
+///////////////////////////////////////////
+
+static void render_global_apply_buffer(const render_action_global_buffer_t* action) {
+	render_global_bind_buffer(action->name, action->slot, action->buffer);
+	render_global_set_buffer (&local.globals, action->name, action->slot, action->buffer);
+}
+
+///////////////////////////////////////////
+
+void render_set_global_tex(const char* name, tex_t texture) {
+	render_global_name_t key;
+	render_global_name(name, key);
+	render_global_queue_tex(key, -1, texture);
+}
+
+///////////////////////////////////////////
+
+tex_t render_get_global_tex(const char* name) {
+	render_global_name_t key;
+	render_global_name(name, key);
+	int32_t idx    = render_global_find(&local.globals_app, key, -1);
+	tex_t   result = idx >= 0 ? local.globals_app[idx].tex : nullptr;
+	if (result != nullptr) tex_addref(result);
+	return result;
+}
+
+///////////////////////////////////////////
+
+void render_set_global_buffer(const char* name, material_buffer_t buffer) {
+	render_global_name_t key;
+	render_global_name(name, key);
+	render_global_queue_buffer(key, -1, buffer);
+}
+
+///////////////////////////////////////////
+
+void render_global_texture(int32_t register_slot, tex_t texture) {
+	if (register_slot < 0 || register_slot >= 16) {
+		log_errf("render_global_texture: Register_slot should be 0-15. Received %d.", register_slot);
+		return;
+	}
+	render_global_queue_tex("", register_slot, texture);
+}
+
+///////////////////////////////////////////
+
+tex_t render_get_global_texture(int32_t register_slot) {
+	int32_t idx    = render_global_find(&local.globals_app, "", register_slot);
+	tex_t   result = idx >= 0 ? local.globals_app[idx].tex : nullptr;
+	if (result != nullptr) tex_addref(result);
+	return result;
+}
+
+///////////////////////////////////////////
+
+void render_global_buffer(int32_t register_slot, material_buffer_t buffer) {
+	if (register_slot < 3 || register_slot >= 16) {
+		log_errf("render_global_buffer: bad slot id '%d', use 3-15.", register_slot);
+		return;
+	}
+	render_global_queue_buffer("", register_slot, buffer);
+}
+
+///////////////////////////////////////////
+
+void render_set_clear_color(color128 color) {
+	local.clear_col = color_to_linear(color);
+}
+
+//////////////////////////////////////////
+
+color128 render_get_clear_color() {
+	return color_to_gamma(local.clear_col);
+}
+
+//////////////////////////////////////////
+
+color128 render_get_clear_color_ln() {
+	return local.clear_col;
+}
+
+///////////////////////////////////////////
+
+void render_add_mesh(mesh_t mesh, material_t material, const matrix &transform, color128 color_linear, render_layer_ layer) {
+	render_list_add_mesh(local.list_active, mesh, material, transform, color_linear, layer);
+}
+
+///////////////////////////////////////////
+
+void render_add_model_mat(model_t model, material_t material_override, const matrix& transform, color128 color_linear, render_layer_ layer) {
+	render_list_add_model_mat(local.list_active, model, material_override, transform, color_linear, layer);
+}
+
+///////////////////////////////////////////
+
+void render_add_model(model_t model, const matrix &transform, color128 color_linear, render_layer_ layer) {
+	render_list_add_model_mat(local.list_active, model, nullptr, transform, color_linear, layer);
+}
+
+///////////////////////////////////////////
+
+void render_draw_queue(render_list_t list, const matrix *views, const matrix *projections, int32_t eye_offset, int32_t view_count, render_layer_ filter, int32_t material_variant, int32_t surface_width, int32_t surface_height) {
+	// Copy camera information into the global buffer
+	for (int32_t i = 0; i < view_count; i++) {
+		XMMATRIX view_f, projection_f;
+		math_matrix_to_fast(views      [eye_offset+i], &view_f      );
+		math_matrix_to_fast(projections[eye_offset+i], &projection_f);
+
+		XMMATRIX view_inv = XMMatrixInverse(nullptr, view_f      );
+		XMMATRIX proj_inv = XMMatrixInverse(nullptr, projection_f);
+
+		XMVECTOR cam_pos = XMVector3Transform      (DirectX::g_XMIdentityR3,    view_inv);
+		XMVECTOR cam_dir = XMVector3TransformNormal(DirectX::g_XMNegIdentityR2, view_inv);
+		XMStoreFloat3((XMFLOAT3*)&local.global_buffer.camera_pos[i], cam_pos);
+		XMStoreFloat3((XMFLOAT3*)&local.global_buffer.camera_dir[i], cam_dir);
+
+		local.global_buffer.view    [i] = XMMatrixTranspose(view_f);
+		local.global_buffer.proj    [i] = XMMatrixTranspose(projection_f);
+		local.global_buffer.proj_inv[i] = XMMatrixTranspose(proj_inv);
+		local.global_buffer.viewproj[i] = XMMatrixTranspose(view_f * projection_f);
+	}
+
+	// Copy in the other global shader variables
+	memcpy(local.global_buffer.lighting, lighting_get_lighting(), sizeof(vec4) * 7);
+	const vec4* main_light = lighting_get_main_light_fast();
+	local.global_buffer.light_dir_to = main_light[0];
+	local.global_buffer.light_color  = main_light[1];
+	local.global_buffer.time        = time_totalf();
+	local.global_buffer.view_count  = view_count;
+	local.global_buffer.eye_offset  = eye_offset;
+	local.global_buffer.screen_size = {
+		(float)surface_width,  (float)surface_height,
+		1.0f / surface_width,  1.0f / surface_height };
+	for (int32_t i = 0; i < handed_max; i++) {
+		const hand_t* hand = input_hand((handed_)i);
+		vec3 tip = (hand->tracked_state & button_state_active) != 0 && input_get_finger_glow()
+			? hand->fingers[1][4].position
+			: vec3{ 0,-1000,0 };
+		local.global_buffer.fingertip[i] = { tip.x, tip.y, tip.z, 0 };
+	}
+
+	// sk_cubemap_i describes the reflection cubemap: .xy dimensions, .z last
+	// mip index for stereokit_pbr.hlsli's roughness curve, .w the constant
+	// term of its footprint mip clamp. 1.8006 = 4*sqrt(2)/pi: reflections
+	// rotate at 2x the normal, faces span pi/2, variance halves the square.
+	int32_t reflection_idx = render_global_find(&local.globals, render_reflection_global, -1);
+	tex_t   reflection_tex = reflection_idx >= 0 ? local.globals[reflection_idx].tex : nullptr;
+	local.global_buffer.cubemap_i = reflection_tex != nullptr
+		? vec4{ (float)reflection_tex->width, (float)reflection_tex->height,
+		        reflection_tex->gpu_tex.mip_levels > 0 ? (float)(reflection_tex->gpu_tex.mip_levels - 1) : 0,
+		        log2f(1.8006f * (float)reflection_tex->width) }
+		: vec4{};
+
+	// Upload shader globals
+	material_buffer_set_data(local.shader_globals, &local.global_buffer);
+
+	// Every draw, since fallbacks resolve and render targets need transitions
+	for (int32_t i = 0; i < local.globals.count; i++) {
+		const render_global_t* g = &local.globals[i];
+		render_global_bind_tex   (g->name, g->slot, g->tex);
+		render_global_bind_buffer(g->name, g->slot, g->buffer);
+	}
+
+	render_list_execute(list, filter, material_variant);
+}
+
+///////////////////////////////////////////
+
+void render_pass_add_draw(skr_pass_t* pass) {
+	skr_pass_add_draw(pass, &local.gpu_render_list,
+		&local.global_buffer, sizeof(local.global_buffer));
+}
+
+///////////////////////////////////////////
+
+// A valid post-process material declares a 'color' input attachment (the
+// scene) and no vertex inputs - it draws as a bufferless fullscreen triangle.
+static bool32_t render_material_is_post_process(material_t material) {
+	if (material == nullptr || material->shader == nullptr) return false;
+
+	const sksc_shader_meta_t* meta = &material->shader->gpu_shader.meta;
+	if (meta->vertex_input_count > 0) return false;
+	for (uint32_t i = 0; i < meta->resource_count; i++) {
+		if (meta->resources[i].bind.register_type == skr_register_input_attachment &&
+		    strcmp(meta->resources[i].name, "color") == 0) return true;
+	}
+	return false;
+}
+
+///////////////////////////////////////////
+
+// Validate the chain, keeping the first SKR_PASS_MAX_POSTFX valid materials
+// in array order. Returns the count written to out_picked.
+static int32_t render_post_process_select(const material_t* materials, int32_t count, material_t out_picked[SKR_PASS_MAX_POSTFX]) {
+	int32_t picked_count = 0;
+	for (int32_t i = 0; i < count; i++) {
+		if (!render_material_is_post_process(materials[i])) {
+			log_errf("'%s' is not a post-process material - its shader needs an input attachment named 'color' (SubpassInput), and no vertex inputs", materials[i] ? materials[i]->header.id_text : "null");
+			continue;
+		}
+		if (picked_count >= SKR_PASS_MAX_POSTFX) {
+			log_errf("Post-process chains are limited to %d materials - skipping '%s'", SKR_PASS_MAX_POSTFX, materials[i]->header.id_text);
+			continue;
+		}
+		out_picked[picked_count++] = materials[i];
+	}
+	return picked_count;
+}
+
+///////////////////////////////////////////
+
+void render_set_post_process(const material_t* materials, int32_t material_count) {
+	material_t picked[SKR_PASS_MAX_POSTFX];
+	int32_t    picked_count = render_post_process_select(materials, material_count, picked);
+
+	// Ref the new chain before releasing the old, they may share materials.
+	for (int32_t i = 0; i < picked_count;             i++) material_addref (picked[i]);
+	for (int32_t i = 0; i < local.post_process.count; i++) material_release(local.post_process[i]);
+	local.post_process.clear();
+	for (int32_t i = 0; i < picked_count; i++)
+		local.post_process.add(picked[i]);
+}
+
+///////////////////////////////////////////
+
+// Set the pass sample count on any MSAA spec constant, flush material params,
+// and attach each already-picked material as a postfx subpass. A material
+// whose 'color' input attachment is SubpassInputMS reads the raw samples, so
+// it becomes the pass's manual MSAA resolve subpass instead - it resolves
+// AND applies its effect in one subpass, and the rest of the chain reads its
+// resolved output.
+static void render_pass_apply_post_process(skr_pass_t* pass, material_t* picked, int32_t picked_count) {
+	int32_t samples = 1;
+	if      (pass->color) samples = skr_tex_get_multisample(pass->color);
+	else if (pass->depth) samples = skr_tex_get_multisample(pass->depth);
+
+	bool32_t has_resolve = false;
+	for (int32_t i = 0; i < picked_count; i++) {
+		material_t mat = picked[i];
+
+		// Set the pass sample count on an MSAA spec constant if present -
+		// unchanged is a no-op, a new value bakes a cached pipeline variant.
+		const sksc_shader_meta_t* meta = &mat->shader->gpu_shader.meta;
+		bool32_t ms_color = false;
+		for (uint32_t s = 0; s < meta->spec_constant_count; s++) {
+			if (strcmp(meta->spec_constants[s].name, "MSAA") == 0) {
+				material_set_int(mat, "MSAA", samples);
+				break;
+			}
+		}
+		for (uint32_t r = 0; r < meta->resource_count; r++) {
+			if (meta->resources[r].bind.register_type == skr_register_input_attachment &&
+			    (meta->resources[r].shape & SKSC_SHAPE_MS) != 0 &&
+			    strcmp(meta->resources[r].name, "color") == 0) { ms_color = true; break; }
+		}
+
+		material_check_dirty(mat);
+		if (ms_color) {
+			if (has_resolve) {
+				log_errf("Post-process chain has more than one MSAA-resolve material (SubpassInputMS 'color') - skipping '%s'", mat->header.id_text);
+				continue;
+			}
+			skr_pass_add_resolve(pass, &mat->gpu_mat);
+			has_resolve = true;
+		} else {
+			skr_pass_add_postfx(pass, &mat->gpu_mat);
+		}
+	}
+}
+
+///////////////////////////////////////////
+
+void render_pass_add_post_process(skr_pass_t* pass, const material_t* materials, int32_t count) {
+	if (count <= 0) return;
+
+	material_t picked[SKR_PASS_MAX_POSTFX];
+	int32_t    picked_count = render_post_process_select(materials, count, picked);
+	render_pass_apply_post_process(pass, picked, picked_count);
+}
+
+///////////////////////////////////////////
+
+void render_pass_add_global_post_process(skr_pass_t* pass) {
+	render_pass_add_post_process(pass, local.post_process.data, local.post_process.count);
+}
+
+///////////////////////////////////////////
+
+// Zero is the default 'clear everything'; render_clear_keep masks to nothing.
+static render_clear_ render_clear_resolve(render_clear_ clear) {
+	if (clear == 0) return render_clear_all;
+	return (render_clear_)(clear & render_clear_all);
+}
+
+///////////////////////////////////////////
+
+// Check and complete any pending async readbacks from previous frames
+void render_check_pending_readbacks() {
+	for (int32_t i = local.pending_readbacks.count - 1; i >= 0; i--) {
+		render_pending_readback_t* pending = &local.pending_readbacks[i];
+
+		// Check if readback is complete
+		if (skr_future_check(&pending->readback.future) == skr_future_state_pending) {
+			continue; // Not ready yet
+		}
+
+		// Readback is complete - hand the mapped data straight to the callback,
+		// which reads it according to format. Valid only until we destroy it.
+		pending->callback(pending->readback.data, pending->format, pending->width, pending->height, pending->context);
+
+		// Cleanup
+		skr_tex_readback_destroy(&pending->readback);
+		tex_release(pending->resolve_tex);
+		tex_release(pending->depth_surface);
+		tex_release(pending->color_surface);
+
+		// Remove from list
+		local.pending_readbacks.remove(i);
+	}
+}
+
+///////////////////////////////////////////
+
+// The screenshots are produced in FIFO order, meaning the
+// order of screenshot requests by users is preserved.
+void render_check_screenshots() {
+	// First, check if any previous readbacks have completed
+	render_check_pending_readbacks();
+
+	if (local.screenshot_list.count == 0) return;
+
+	for (int32_t i = 0; i < local.screenshot_list.count; i++) {
+		int32_t  w = local.screenshot_list[i].width;
+		int32_t  h = local.screenshot_list[i].height;
+
+		// Create render targets for screenshot
+		// Depth matches the display's preferred (stencil-free) format, so
+		// depth-reading post-process effects work in screenshots too.
+		// The MSAA surface only ever feeds resolve_tex, so it's transient. The
+		// readback below reads the resolve, never this.
+		tex_t color_surface = tex_create(tex_type_image_nomips | tex_type_rendertarget | tex_type_transient_internal, local.screenshot_list[i].tex_format);
+		tex_set_size(color_surface, w, h, 1, 1, 8);
+		// Passed as the DEPTH format, not the color one: only depth targets
+		// get input attachment usage, which postfx needs to read depth.
+		tex_t depth_surface = tex_create_rendertarget(w, h, 8, tex_format_none, tex_get_supported_depth_format(render_preferred_depth_fmt(), true, 8));
+		tex_t resolve_tex   = tex_create_rendertarget(w, h, 1, local.screenshot_list[i].tex_format, tex_format_none);
+
+		// Set up viewport
+		skr_rect_t  viewport = { 0, 0, (float)w, (float)h };
+		skr_recti_t scissor  = { 0, 0, w, h };
+		if (local.screenshot_list[i].viewport.w != 0) {
+			viewport = {
+				local.screenshot_list[i].viewport.x,
+				local.screenshot_list[i].viewport.y,
+				local.screenshot_list[i].viewport.w,
+				local.screenshot_list[i].viewport.h };
+			scissor = {
+				(int32_t)local.screenshot_list[i].viewport.x,
+				(int32_t)local.screenshot_list[i].viewport.y,
+				(int32_t)local.screenshot_list[i].viewport.w,
+				(int32_t)local.screenshot_list[i].viewport.h };
+		}
+
+		// Determine clear flags
+		render_clear_ clear      = render_clear_resolve(local.screenshot_list[i].clear);
+		// The color surface is brand new every shot, so skipping the clear has
+		// nothing to preserve. Discard, or we'd load undefined contents.
+		skr_clear_    clear_flags = (clear & render_clear_color) ? skr_clear_color : skr_clear_color_discard;
+		if (clear & render_clear_depth) clear_flags = (skr_clear_)(clear_flags | skr_clear_depth | skr_clear_stencil);
+
+		// Render!
+		skr_vec4_t clear_color = { local.clear_col.r, local.clear_col.g, local.clear_col.b, local.clear_col.a };
+		render_draw_queue(local.list_primary, &local.screenshot_list[i].camera, &local.screenshot_list[i].projection, 0, 1, local.screenshot_list[i].layer_filter, 0, w, h);
+
+		skr_pass_t pass = {};
+		pass.color       = &color_surface->gpu_tex;
+		pass.depth       = &depth_surface->gpu_tex;
+		pass.resolve     = &resolve_tex->gpu_tex;
+		pass.clear       = clear_flags;
+		pass.clear_color = clear_color;
+		pass.clear_depth = 1.0f;
+		pass.viewport    = viewport;
+		pass.scissor     = scissor;
+		pass.view_count  = 1;
+		render_pass_add_draw(&pass);
+		// Screenshots follow the display's post-process chain - what you see
+		// is what you shoot.
+		render_pass_add_global_post_process(&pass);
+		skr_pass_submit(&pass);
+
+		// Initiate async readback (will complete in a future frame after GPU finishes)
+		render_pending_readback_t pending = {};
+		pending.callback      = local.screenshot_list[i].render_on_screenshot_callback;
+		pending.context       = local.screenshot_list[i].context;
+		pending.format        = local.screenshot_list[i].tex_format;
+		pending.width         = w;
+		pending.height        = h;
+		pending.color_surface = color_surface;
+		pending.depth_surface = depth_surface;
+		pending.resolve_tex   = resolve_tex;
+
+		if (skr_tex_readback(&resolve_tex->gpu_tex, 0, 0, &pending.readback) == skr_err_success) {
+			local.pending_readbacks.add(pending);
+		} else {
+			// Readback failed - clean up and log error
+			log_warn("Screenshot readback failed");
+			tex_release(resolve_tex);
+			tex_release(depth_surface);
+			tex_release(color_surface);
+		}
+	}
+	local.screenshot_list.clear();
+}
+
+///////////////////////////////////////////
+
+void render_draw_viewpoint(render_action_viewpoint_t* vp) {
+	int32_t w = vp->rendertarget->width;
+	int32_t h = vp->rendertarget->height;
+
+	// Determine if this is a depth-only render target (e.g., shadow map)
+	bool depth_only = (vp->rendertarget->type & tex_type_depth) || (vp->rendertarget->type & tex_type_depthtarget);
+
+	// For depth-only targets, the rendertarget IS the depth buffer
+	// For color targets, use the render target's depth buffer if it has one
+	skr_tex_t* color_tex = depth_only ? nullptr : &vp->rendertarget->gpu_tex;
+	skr_tex_t* depth_tex = depth_only ? &vp->rendertarget->gpu_tex : (vp->rendertarget->depth_buffer ? &vp->rendertarget->depth_buffer->gpu_tex : nullptr);
+
+	// Set up viewport
+	skr_rect_t  viewport = { 0, 0, (float)w, (float)h };
+	skr_recti_t scissor  = { 0, 0, w, h };
+	if (vp->viewport.w != 0) {
+		viewport = {
+			vp->viewport.x * w,
+			vp->viewport.y * h,
+			vp->viewport.w * w,
+			vp->viewport.h * h };
+		scissor = {
+			(int32_t)(vp->viewport.x * w),
+			(int32_t)(vp->viewport.y * h),
+			(int32_t)(vp->viewport.w * w),
+			(int32_t)(vp->viewport.h * h) };
+	}
+
+	// Determine clear flags
+	skr_clear_ clear_flags = skr_clear_none;
+	if (!depth_only && (vp->clear & render_clear_color)) clear_flags = (skr_clear_)(clear_flags | skr_clear_color);
+	if (vp->clear & render_clear_depth) clear_flags = (skr_clear_)(clear_flags | skr_clear_depth | skr_clear_stencil);
+
+	// Render!
+	skr_vec4_t clear_color = { vp->clear_color.r, vp->clear_color.g, vp->clear_color.b, vp->clear_color.a };
+	render_draw_queue(local.list_primary, vp->cameras, vp->projections, 0, vp->view_count, vp->layer_filter, vp->material_variant, w, h);
+
+	skr_pass_t pass = {};
+	pass.color            = color_tex;
+	pass.depth            = depth_tex;
+	pass.clear            = clear_flags;
+	pass.clear_color      = clear_color;
+	pass.clear_depth      = 1.0f;
+	pass.viewport         = viewport;
+	pass.scissor          = scissor;
+	pass.view_count       = vp->view_count;
+	pass.views_correlated = vp->view_count == 2;
+	render_pass_add_draw(&pass);
+	// The chain was already selected + ref'd at enqueue, just apply it
+	render_pass_apply_post_process(&pass, vp->post_process, vp->post_process_count);
+	skr_pass_submit(&pass);
+	tex_lighting_dirty(vp->rendertarget);
+
+	// Release the references we added, the user should have their own
+	for (int32_t i = 0; i < vp->post_process_count; i++)
+		material_release(vp->post_process[i]);
+	tex_release(vp->rendertarget);
+}
+
+///////////////////////////////////////////
+
+void render_action_list_execute() {
+	for (int32_t i = 0; i < local.render_action_list.count; i++) {
+		render_action_t* a = &local.render_action_list[i];
+		switch (a->type) {
+		case render_action_type_viewpoint:      render_draw_viewpoint(&a->viewpoint); break;
+		case render_action_type_global_buffer:  render_global_apply_buffer(&a->global_buffer ); material_buffer_release(a->global_buffer .buffer ); break;
+		case render_action_type_global_texture: render_global_apply_tex   (&a->global_texture); tex_release            (a->global_texture.texture); break;
+		case render_action_type_compute:        compute_dispatch_now          ( a->compute       .compute, a->compute.groups[0], a->compute.groups[1], a->compute.groups[2]); compute_release(a->compute.compute); break;
+		default: break;
+		}
+	}
+	local.render_action_list.clear();
+}
+
+///////////////////////////////////////////
+
+void render_clear() {
+	render_list_clear(local.list_primary);
+}
+
+///////////////////////////////////////////
+
+void render_blit(tex_t to, material_t material) {
+	material_check_dirty(material);
+
+	skr_vec3i_t size = skr_tex_get_size(&to->gpu_tex);
+	skr_recti_t bounds = { 0, 0, size.x, size.y };
+	skr_renderer_blit(&material->gpu_mat, &to->gpu_tex, bounds);
+	tex_lighting_dirty(to);
+}
+
+///////////////////////////////////////////
+
+struct screenshot_ctx_t {
+	char*   filename;
+	int32_t quality;
+};
+
+void render_save_to_file(void* data, tex_format_ format, int width, int height, void* context) {
+	// srgb and linear rgba32 share the byte layout stb writes as-is; bgra would
+	// come out with R/B swapped, and wider/other formats aren't 4x8-bit RGBA.
+	screenshot_ctx_t *ctx = (screenshot_ctx_t*)context;
+	if (format == tex_format_rgba32 || format == tex_format_rgba32_linear) {
+		// `data` is mapped GPU memory that's only valid for this call, and on
+		// most drivers it's uncached, where the encoders' non-linear reads are
+		// very slow. Our own copy solves both, and encodes ~10x faster.
+		size_t size   = (size_t)width * height * 4;
+		void*  pixels = sk_malloc(size);
+		memcpy(pixels, data, size);
+
+		if (string_endswith(ctx->filename, ".png", false)) {
+			stbi_write_png(ctx->filename, width, height, 4, pixels, 0);
+		} else {
+			stbi_write_jpg(ctx->filename, width, height, 4, pixels, ctx->quality);
+		}
+		sk_free(pixels);
+	} else {
+		log_errf("render screenshot to file requires an rgba32 format, got format %d", format);
+	}
+	sk_free(ctx->filename);
+	sk_free(ctx);
+}
+
+///////////////////////////////////////////
+
+void render_screenshot(const char* file_utf8, int32_t file_quality_100, pose_t viewpoint, int32_t width, int32_t height, float fov_degrees) {
+	screenshot_ctx_t *ctx = sk_malloc_t(screenshot_ctx_t, 1);
+	ctx->filename = string_copy(file_utf8);
+	ctx->quality  = file_quality_100;
+
+	// File output is just a capture into the built-in file writer.
+	render_screenshot_capture(render_save_to_file, viewpoint, width, height, fov_degrees, tex_format_rgba32, ctx);
+}
+
+///////////////////////////////////////////
+
+void render_screenshot_capture(void (*render_on_screenshot_callback)(void* data, tex_format_ format, int32_t width, int32_t height, void* context), pose_t viewpoint, int32_t width, int32_t height, float fov_degrees, tex_format_ tex_format, void* context) {
+	// A pose+fov is just a viewpoint whose camera is the pose matrix (viewpoint
+	// re-inverts it) and a perspective projection, full-frame and all-layers.
+	matrix proj = matrix_perspective(fov_degrees, (float)width / height, local.clip_planes.x, local.clip_planes.y);
+	render_screenshot_viewpoint(render_on_screenshot_callback, pose_matrix(viewpoint), proj, width, height, render_layer_all, render_clear_all, rect_t{}, tex_format, context);
+}
+
+///////////////////////////////////////////
+
+void render_screenshot_viewpoint(void (*render_on_screenshot_callback)(void* data, tex_format_ format, int32_t width, int32_t height, void* context), matrix camera, matrix projection, int32_t width, int32_t height, render_layer_ layer_filter, render_clear_ clear, rect_t viewport, tex_format_ tex_format, void* context) {
+	matrix inv_cam = matrix_invert(camera);
+	local.screenshot_list.add(render_screenshot_t{ render_on_screenshot_callback, context, inv_cam, projection, viewport, width, height, layer_filter, clear, tex_format });
+}
+
+///////////////////////////////////////////
+
+void render_to(tex_t to_rendertarget, int32_t to_target_index, const matrix* cameras, const matrix* projections, int32_t view_count, const render_settings_t* opt_settings) {
+	const render_settings_t defaults = {};
+	const render_settings_t* s = opt_settings ? opt_settings : &defaults;
+
+	if (!(to_rendertarget->type & tex_type_rendertarget || to_rendertarget->type & tex_type_depthtarget || to_rendertarget->type & tex_type_zbuffer)) {
+		log_err("render_to texture must be a render target texture type!");
+		return;
+	}
+	if (view_count < 1 || view_count > SK_MAX_VIEWS) {
+		log_errf("render_to view_count %d out of range [1, %d]", view_count, SK_MAX_VIEWS);
+		return;
+	}
+	tex_addref(to_rendertarget);
+
+	render_action_t action = {};
+	action.type = render_action_type_viewpoint;
+	action.viewpoint.rendertarget       = to_rendertarget;
+	action.viewpoint.rendertarget_index = to_target_index;
+	action.viewpoint.view_count         = view_count;
+	for (int32_t i = 0; i < view_count; i++) {
+		matrix_inverse(cameras[i], action.viewpoint.cameras[i]);
+		action.viewpoint.projections[i] = projections[i];
+	}
+	action.viewpoint.layer_filter      = s->layer_filter == 0 ? render_layer_all : s->layer_filter;
+	action.viewpoint.viewport          = s->viewport;
+	action.viewpoint.clear             = render_clear_resolve(s->clear);
+	action.viewpoint.clear_color       = s->clear_color;
+	action.viewpoint.material_variant  = s->material_variant;
+	// Select the chain now, and hold refs until the action executes
+	action.viewpoint.post_process_count = render_post_process_select(s->post_process, s->post_process_count, action.viewpoint.post_process);
+	for (int32_t i = 0; i < action.viewpoint.post_process_count; i++)
+		material_addref(action.viewpoint.post_process[i]);
+	local.render_action_list.add(action);
+}
+
+///////////////////////////////////////////
+
+vec3 render_unproject_pt(vec3 normalized_screen_pt) {
+	XMMATRIX fast_proj, fast_view;
+	math_matrix_to_fast(render_get_projection_matrix(), &fast_proj);
+	math_matrix_to_fast(local.camera_root_final_inv,  &fast_view);
+	XMVECTOR result = XMVector3Unproject(math_vec3_to_fast(normalized_screen_pt),
+		0, 0, (float)sk_system_info().display_width, (float)sk_system_info().display_height,
+		0, 1,
+		fast_proj, fast_view, XMMatrixIdentity());
+		
+	return math_fast_to_vec3(result);
+}
+
+///////////////////////////////////////////
+// Render List                           //
+///////////////////////////////////////////
+
+render_list_t render_list_find(const char* id) {
+	render_list_t result = (render_list_t)assets_find(id, asset_type_render_list);
+	if (result != nullptr) {
+		render_list_addref(result);
+		return result;
+	}
+	return nullptr;
+}
+
+///////////////////////////////////////////
+
+render_list_t render_list_create(render_list_refs_ refs) {
+	render_list_t result = (render_list_t)assets_allocate(asset_type_render_list);
+	result->refs = refs;
+	return result;
+}
+
+///////////////////////////////////////////
+
+void render_list_set_id(render_list_t list, const char* id) {
+	assets_set_id(&list->header, id);
+}
+
+///////////////////////////////////////////
+
+const char* render_list_get_id(const render_list_t list) {
+	return list->header.id_text;
+}
+
+///////////////////////////////////////////
+
+void render_list_addref(render_list_t list) {
+	assets_addref(&list->header);
+}
+
+///////////////////////////////////////////
+
+void render_list_release(render_list_t list) {
+	if (list == nullptr)
+		return;
+	assets_releaseref(&list->header);
+}
+
+///////////////////////////////////////////
+
+void render_list_destroy(render_list_t list) {
+	if (list == nullptr) return;
+	render_list_clear(list);
+	list->queue.free();
+	*list = {};
+}
+
+///////////////////////////////////////////
+
+void render_list_push(render_list_t list) {
+	render_list_addref(list);
+	local.list_stack.add(list);
+
+	local.list_active = list;
+}
+
+///////////////////////////////////////////
+
+void render_list_pop() {
+	render_list_release(local.list_stack[local.list_stack.count-1]);
+	local.list_stack.pop();
+	local.list_active = local.list_stack.count > 0 
+		? local.list_stack[local.list_stack.count-1]
+		: nullptr;
+}
+
+///////////////////////////////////////////
+
+static void render_list_add_to(render_list_t list, const render_item_t *item) {
+	list->queue.add(*item);
+	if (list->refs == render_list_refs_tracked) {
+		assets_addref(&item->material->header);
+		assets_addref(&item->mesh->header);
+	}
+}
+
+///////////////////////////////////////////
+
+static void render_list_execute(render_list_t list, render_layer_ filter, int32_t material_variant) {
+	// Clear the sk_renderer render list before populating it
+	skr_render_list_t* gpu_list = &local.gpu_render_list;
+	skr_render_list_clear(gpu_list);
+
+	if (list->queue.count == 0) return;
+
+	// Make sure all materials are up-to-date
+	material_t curr = nullptr;
+	for (int32_t i = 0; i < list->queue.count; i++) {
+		if (curr == list->queue[i].material) continue;
+		curr = list->queue[i].material;
+
+		material_t check = material_variant == 0
+			? curr
+			: curr->variants[material_variant - 1];
+		if (check) material_check_dirty(check);
+	}
+
+	for (int32_t i = 0; i < list->queue.count; i++) {
+		render_item_t *item = &list->queue[i];
+
+		// Skip this item if it's filtered out
+		if ((item->layer & filter) == 0) continue;
+
+		// Pick the right material according to the variant
+		material_t item_mat = material_variant == 0
+			? item->material
+			: item->material->variants[material_variant - 1];
+
+		// Skip if the material variant is null
+		if (item_mat == nullptr) continue;
+
+		// Prepare instance data - transpose the matrix for GPU
+		XMMATRIX transpose = XMMatrixTranspose(item->transform);
+		render_transform_buffer_t inst = { transpose, item->color };
+
+		// Add to sk_renderer's render list - it handles sorting and batching
+		skr_render_list_add_indexed(gpu_list,
+			&item->mesh->gpu_mesh,
+			&item_mat->gpu_mat,
+			0, item->mesh_inds, 0,
+			&inst, sizeof(inst), 1);
+	}
+}
+
+///////////////////////////////////////////
+
+void render_list_clear(render_list_t list) {
+	list->prev_count = list->queue.count;
+	if (list->refs == render_list_refs_tracked) {
+		for (int32_t i = 0; i < list->queue.count; i++) {
+			assets_releaseref(&list->queue[i].material->header);
+			assets_releaseref(&list->queue[i].mesh    ->header);
+		}
+	}
+	list->queue.clear();
+}
+
+///////////////////////////////////////////
+
+int32_t render_list_item_count(render_list_t list) {
+	return list->queue.count;
+}
+
+///////////////////////////////////////////
+
+int32_t render_list_prev_count(render_list_t list) {
+	return list->prev_count;
+}
+
+///////////////////////////////////////////
+
+void render_list_add_mesh(render_list_t list, mesh_t mesh, material_t material, matrix transform, color128 color_linear, render_layer_ layer) {
+	if (mesh->ind_draw == 0) return;
+	render_item_t item = {};
+	item.mesh      = mesh;
+	item.mesh_inds = mesh->ind_draw;
+	item.color     = color_linear;
+	item.layer     = (uint16_t)layer;
+	if (hierarchy_use_top()) matrix_mul         (transform, hierarchy_top(), item.transform);
+	else                     math_matrix_to_fast(transform, &item.transform);
+
+	material_t curr = material;
+	while (curr != nullptr) {
+		item.material = curr;
+		render_list_add_to(list, &item);
+		curr = curr->chain;
+	}
+}
+
+///////////////////////////////////////////
+
+void render_list_add_model(render_list_t list, model_t model, matrix transform, color128 color_linear, render_layer_ layer) {
+	render_list_add_model_mat(list, model, nullptr, transform, color_linear, layer);
+}
+
+///////////////////////////////////////////
+
+void render_list_add_model_mat(render_list_t list, model_t model, material_t material_override, matrix transform, color128 color_linear, render_layer_ layer) {
+	if (model->header.state < asset_state_loaded_meta) return;
+
+	XMMATRIX root;
+	if (hierarchy_use_top()) matrix_mul         (transform, hierarchy_top(), root);
+	else                     math_matrix_to_fast(transform, &root);
+
+	anim_update_model(model);
+	for (int32_t i = 0; i < model->visuals.count; i++) {
+		const model_visual_t *vis = &model->visuals[i];
+		if (vis->visible == false || vis->mesh == nullptr || vis->material == nullptr) continue;
+		if (vis->mesh->ind_draw == 0) continue;
+
+		render_item_t item = {};
+		item.mesh      = vis->mesh;
+		item.mesh_inds = vis->mesh->ind_draw;
+		item.color     = color_linear;
+		item.layer     = (uint16_t)layer;
+		matrix_mul(vis->transform_model, root, item.transform);
+
+		material_t curr = material_override == nullptr ? vis->material : material_override;
+		while (curr != nullptr) {
+			item.material = curr;
+			render_list_add_to(list, &item);
+			curr = curr->chain;
+		}
+	}
+
+	if (model->transforms_changed && model->anim_data.skeletons.count > 0) {
+		model->transforms_changed = false;
+		anim_update_skin(model);
+	}
+}
+
+///////////////////////////////////////////
+
+void render_list_draw_now(render_list_t list, tex_t to_rendertarget, const matrix* cameras, const matrix* projections, int32_t view_count, const render_settings_t* opt_settings) {
+	const render_settings_t defaults = {};
+	const render_settings_t* s = opt_settings ? opt_settings : &defaults;
+
+	render_layer_ layer_filter     = s->layer_filter == 0 ? render_layer_all : s->layer_filter;
+	render_clear_ clear            = render_clear_resolve(s->clear);
+	color128      clear_color      = s->clear_color;
+	rect_t        viewport_pct     = s->viewport;
+	int32_t       material_variant = s->material_variant;
+
+	int32_t w = to_rendertarget->width;
+	int32_t h = to_rendertarget->height;
+
+	// Depth-only targets (e.g. shadow maps) - the rendertarget IS the depth
+	// buffer and there is no color attachment. Match render_draw_viewpoint.
+	bool  depth_only    = (to_rendertarget->type & tex_type_depth) || (to_rendertarget->type & tex_type_depthtarget);
+	tex_t depth_surface = depth_only ? to_rendertarget : to_rendertarget->depth_buffer;
+
+	// Set up viewport
+	if (viewport_pct.w == 0) viewport_pct.w = 1;
+	if (viewport_pct.h == 0) viewport_pct.h = 1;
+
+	skr_rect_t  viewport = {
+		viewport_pct.x * w,
+		viewport_pct.y * h,
+		viewport_pct.w * w,
+		viewport_pct.h * h };
+	skr_recti_t scissor = {
+		(int32_t)(viewport_pct.x * w),
+		(int32_t)(viewport_pct.y * h),
+		(int32_t)(viewport_pct.w * w),
+		(int32_t)(viewport_pct.h * h) };
+
+	// Determine clear flags
+	skr_clear_ clear_flags = skr_clear_none;
+	if (clear & render_clear_color) clear_flags = (skr_clear_)(clear_flags | skr_clear_color);
+	if (depth_surface && (clear & render_clear_depth)) clear_flags = (skr_clear_)(clear_flags | skr_clear_depth | skr_clear_stencil);
+
+	// Render!
+	skr_vec4_t skr_clear_color = { clear_color.r, clear_color.g, clear_color.b, clear_color.a };
+	render_draw_queue(list, cameras, projections, 0, view_count, layer_filter, material_variant, w, h);
+
+	skr_pass_t pass = {};
+	pass.color       = depth_only ? nullptr : &to_rendertarget->gpu_tex;
+	pass.depth       = depth_surface ? &depth_surface->gpu_tex : nullptr;
+	pass.clear       = clear_flags;
+	pass.clear_color = skr_clear_color;
+	pass.clear_depth = 1.0f;
+	pass.viewport    = viewport;
+	pass.scissor     = scissor;
+	pass.view_count       = view_count;
+	pass.views_correlated = view_count == 2; // XR L/R eyes; assume uncorrelated for other counts
+	render_pass_add_draw(&pass);
+	render_pass_add_post_process(&pass, s->post_process, s->post_process_count);
+	skr_pass_submit(&pass);
+}
+
+} // namespace sk

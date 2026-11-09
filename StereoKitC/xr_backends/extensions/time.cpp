@@ -1,0 +1,99 @@
+/* SPDX-License-Identifier: MIT */
+/* The authors below grant copyright rights under the MIT license:
+ * Copyright (c) 2025 Nick Klingensmith
+ * Copyright (c) 2025 Qualcomm Technologies, Inc.
+ */
+
+// This implements XR_KHR_convert_timespec_time and XR_KHR_win32_convert_performance_counter_time
+// https://registry.khronos.org/OpenXR/specs/1.0/html/xrspec.html#XR_KHR_convert_timespec_time
+// https://registry.khronos.org/OpenXR/specs/1.0/html/xrspec.html#XR_KHR_win32_convert_performance_counter_time
+
+#include "../openxr_platform.h"
+#include "ext_management.h"
+#include "time.h"
+
+// There are two different time conversion extensions, one for Windows, and one
+// for everything else. We're using some macros here to make the code a bit
+// more linear.
+#ifdef XR_USE_TIMESPEC
+	#include <time.h>
+	#define XR_TIME_EXTENSION XR_KHR_CONVERT_TIMESPEC_TIME_EXTENSION_NAME
+	#define XR_EXT_FUNCTIONS( X )         \
+		X(xrConvertTimespecTimeToTimeKHR) \
+		X(xrConvertTimeToTimespecTimeKHR)
+#else
+	#define XR_TIME_EXTENSION XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME
+	#define XR_EXT_FUNCTIONS( X )                    \
+		X(xrConvertWin32PerformanceCounterToTimeKHR) \
+		X(xrConvertTimeToWin32PerformanceCounterKHR )
+#endif
+OPENXR_DEFINE_FN_STATIC(XR_EXT_FUNCTIONS);
+
+///////////////////////////////////////////
+
+namespace sk {
+
+///////////////////////////////////////////
+
+xr_system_ xr_ext_time_pre_session(void*, XrBaseHeader*);
+void       xr_ext_time_shutdown   (void*);
+
+///////////////////////////////////////////
+
+void xr_ext_time_register() {
+	xr_system_t sys = {};
+	sys.request_exts[sys.request_ext_count++] = XR_TIME_EXTENSION;
+	sys.evt_pre_session = { xr_ext_time_pre_session };
+	sys.evt_shutdown    = { xr_ext_time_shutdown    };
+	ext_management_sys_register(sys);
+}
+
+///////////////////////////////////////////
+
+// Session begin can need a fallback xr_time, and that comes before evt_initialize.
+// Without this extension, xr_time stays 0 until the first xrWaitFrame.
+xr_system_ xr_ext_time_pre_session(void*, XrBaseHeader*) {
+	if (!backend_openxr_ext_enabled(XR_TIME_EXTENSION))
+		return xr_system_fail;
+
+	// Load all extension functions
+	OPENXR_LOAD_FN_RETURN(XR_EXT_FUNCTIONS, xr_system_fail);
+
+	// A number of items use the xr_time, so lets get this ready as soon as we're
+	// able.
+	xr_time = xr_ext_time_acquire_time();
+
+	return xr_system_succeed;
+}
+
+///////////////////////////////////////////
+
+void xr_ext_time_shutdown(void*) {
+	OPENXR_CLEAR_FN(XR_EXT_FUNCTIONS);
+}
+
+///////////////////////////////////////////
+
+XrTime xr_ext_time_acquire_time() {
+	XrTime result = {};
+#ifdef XR_USE_TIMESPEC
+	if (xrConvertTimespecTimeToTimeKHR == nullptr) return result;
+
+	struct timespec time;
+	if (clock_gettime(CLOCK_MONOTONIC, &time) != 0 ||
+		XR_FAILED(xrConvertTimespecTimeToTimeKHR(xr_instance, &time, &result))) {
+		log_warn("openxr_acquire_time failed to get current time!");
+	}
+#else
+	if (xrConvertWin32PerformanceCounterToTimeKHR == nullptr) return result;
+
+	LARGE_INTEGER time;
+	if (!QueryPerformanceCounter(&time) ||
+		XR_FAILED(xrConvertWin32PerformanceCounterToTimeKHR(xr_instance, &time, &result))) {
+		log_warn("openxr_acquire_time failed to get current time!");
+	}
+#endif
+	return result;
+}
+
+} // namespace sk

@@ -1,0 +1,52 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+		<SKOutputArch Condition="'$(SKSDKBuildMode)'!=''">$(SKSDKBuildMode.ToLower())</SKOutputArch>
+		<SKOutputArch Condition="'$(SKOutputArch)'=='' and '$(Platform)'!='' and '$(Platform)'!='AnyCPU'">$(Platform.ToLower())</SKOutputArch>
+		<SKOutputArch Condition="'$(SKOutputArch)'==''">$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLower())</SKOutputArch>
+		<OutputPath>..\..\bin\$(SKOutputArch)_$(Configuration)\StereoKitTest\</OutputPath>
+		<RunWorkingDirectory>$(OutputPath)</RunWorkingDirectory>
+		<ApplicationIcon>App.ico</ApplicationIcon>
+
+		<SKAssetFolder>..\Assets</SKAssetFolder>
+		<SKAssetDestination>Assets</SKAssetDestination>
+		<SKShowDebugVars>true</SKShowDebugVars>
+		<SKUseSVSL>true</SKUseSVSL>
+
+		<NoWarn>CS1587</NoWarn>
+	</PropertyGroup>
+	
+	<!-- IF YOU ARE LOOKING AT THIS FILE AS REFERENCE, I recommend that you
+	     do not. This file 'emulates' the NuGet package's behavior, since we
+	     can't directly reference a NuGet output without lots of pain and
+	     suffering. Check here instead: https://stereokit.net/Pages/Guides/Learning-Resources.html -->
+	
+	<!-- Exclude the subfolders for different platform projects -->
+	<ItemGroup>
+		<Compile Remove="StereoKitTest_NetAndroid\**" />
+		<Compile Remove="StereoKitTest_AndroidService\**" />
+		<EmbeddedResource Remove="StereoKitTest_NetAndroid\**" />
+		<EmbeddedResource Remove="StereoKitTest_AndroidService\**" />
+		<None Remove="StereoKitTest_NetAndroid\**" />
+		<None Remove="StereoKitTest_AndroidService\**" />
+	</ItemGroup>
+	
+
+	<!-- This guide file shouldn't be compiled -->
+	<ItemGroup>
+		<Compile Remove="Guides\GuideGettingStarted.cs" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="Guides\GuideGettingStarted.cs" />
+	</ItemGroup>
+
+	<!-- Include the StereoKit project manually. This is similar to including the
+	     StereoKit NuGet, but different because C# cannot consume a NuGet package
+	     directly. -->
+	<Import Project="$(ProjectDir)..\..\StereoKit\BuildStereoKitSDK.targets" />
+
+</Project>
