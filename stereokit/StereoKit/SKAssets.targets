@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!--Gather a list of items from the Asset folder, we do this as a Target,
+	    otherwise VS may add 'Remove' items when users add items to their
+		Assets folder.-->
+	<Target Name="StereoKit_ContentFind" AfterTargets="StereoKit_Properties" BeforeTargets="AssignTargetPaths">
+		<!--Excluding the shader output keeps scripting mode, which compiles into
+		    the asset folder, from adding those shaders twice.-->
+		<ItemGroup Condition="'$(SKCopyAssets)'=='True'">
+			<SKContent Include="$(SKAssetFolder)/**" Exclude="$(SKAssetShaderExclude)" />
+		</ItemGroup>
+	</Target>
+
+	<Target Name="StereoKit_ContentCopy" AfterTargets="StereoKit_ContentFind;StereoKit_ShaderCopy" BeforeTargets="AssignTargetPaths">
+		<ItemGroup Condition="'$(SKBuildPlatform)'!='Android'">
+			<Content Include="%(SKContent.Identity)">
+				<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+				<Link>$(SKAssetDestination)/%(SKContent.RecursiveDir)%(SKContent.Filename)%(SKContent.Extension)</Link>
+			</Content>
+		</ItemGroup>
+		<ItemGroup Condition="'$(SKBuildPlatform)'=='Android'">
+			<AndroidAsset Include="%(SKContent.Identity)">
+				<Link>%(SKContent.RecursiveDir)%(SKContent.Filename)%(SKContent.Extension)</Link>
+			</AndroidAsset>
+		</ItemGroup>
+	</Target>
+</Project>

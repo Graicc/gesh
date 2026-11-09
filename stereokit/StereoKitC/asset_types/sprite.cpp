@@ -1,0 +1,252 @@
+#include "sprite.h"
+#include "assets.h"
+#include "../systems/sprite_drawer.h"
+#include "../sk_math.h"
+#include "../sk_memory.h"
+
+#include <stdio.h>
+
+namespace sk {
+
+struct sprite_inst_t {
+	vec2    uvs[2];
+	color32 color;
+	matrix  transform;
+};
+
+struct spritemap_t {
+	uint64_t   id;
+	tex_t      texture;
+	material_t material;
+	sprite_t  *sprites;
+	int32_t    sprite_count;
+	int32_t    sprite_cap;
+};
+
+int32_t      sprite_index     = 0;
+spritemap_t *sprite_maps      = nullptr;
+int32_t      sprite_map_count = 0;
+bool         sprite_warning   = false;
+
+///////////////////////////////////////////
+
+sprite_t sprite_find(const char* id) {
+	sprite_t result = (sprite_t)assets_find(id, asset_type_sprite);
+	if (result != nullptr) {
+		sprite_addref(result);
+		return result;
+	}
+	return nullptr;
+}
+
+///////////////////////////////////////////
+
+void sprite_set_id(sprite_t sprite, const char *id) {
+	assets_set_id(&sprite->header, id);
+	if (sprite->buffer_index == -1 && sprite->material != nullptr) {
+		char mat_id[128];
+		snprintf(mat_id, sizeof(mat_id), "%s/material", id);
+		material_set_id(sprite->material, mat_id);
+	}
+}
+
+///////////////////////////////////////////
+
+const char* sprite_get_id(const sprite_t sprite) {
+	return sprite->header.id_text;
+}
+
+///////////////////////////////////////////
+
+material_t sprite_create_material(int index_id) {
+	shader_t   shader = shader_find(default_id_shader_unlit_clip);
+	material_t result = material_create(shader);
+	material_set_transparency(result, transparency_blend);
+	material_set_cull        (result, cull_none);
+	material_set_depth_test  (result, depth_test_less_or_eq);
+	shader_release(shader);
+
+	return result;
+}
+
+///////////////////////////////////////////
+
+// Single sprites have nothing to finalize but state; atlas placement will
+// happen here later, since packing needs the image's dimensions.
+static asset_action_result_ sprite_finalize(asset_task_t*, asset_header_t* asset, void*) {
+	asset->state = asset_state_loaded;
+	return asset_action_done;
+}
+
+// A sprite can't fail: a failed image resolves to the error fallback
+// texture, so the sprite finalizes as loaded and shows that fallback.
+static void sprite_finalize_failed(asset_header_t* asset, void*) {
+	asset->state = asset_state_loaded;
+}
+
+///////////////////////////////////////////
+
+sprite_t sprite_create(tex_t image, sprite_type_ type, const char *atlas_id) {
+	if (type == sprite_type_atlased) {
+		if (sprite_warning == false) {
+			sprite_warning = true;
+			log_diag("sprite_create: Atlased sprites not implemented yet! All atlased sprites will be switched to single.");
+		}
+		type = sprite_type_single;
+	}
+
+	// Make an id for the sprite
+	const char* image_id = tex_get_id(image);
+	char sprite_id[256];
+	if (type == sprite_type_single) {
+		snprintf(sprite_id, sizeof(sprite_id), "%s/sprite", image_id);
+	} else {
+		snprintf(sprite_id, sizeof(sprite_id), "%s/sprite/atlas/%s", image_id, atlas_id);
+	}
+	// Check if the id already exists
+	sprite_t result;
+	if (assets_find_or_create(sprite_id, asset_type_sprite, (void**)&result) == asset_find_found)
+		return result;
+
+	tex_addref(image);
+
+	result->header.state = asset_state_loading;
+	result->texture = image;
+	result->uvs[0] = vec2{ 0,0 };
+	result->uvs[1] = vec2{ 1,1 };
+
+	if (type == sprite_type_single) {
+		result->size         = 1;
+		result->buffer_index = -1;
+		result->material     = sprite_create_material(sprite_index);
+		material_set_texture(result->material, "diffuse", image);
+	} else {
+		// Find the atlas for this id
+		id_hash_t    map_id = hash_string(atlas_id);
+		spritemap_t *map    = nullptr;
+		int32_t      index  = -1;
+		for (int32_t i = 0; i < sprite_map_count; i++) {
+			if (sprite_maps[i].id == map_id) {
+				map   = &sprite_maps[i];
+				index = i;
+				break;
+			}
+		}
+		// No atlas yet? Make one!
+		if (map == nullptr) {
+			index             = sprite_map_count;
+			sprite_map_count += 1;
+			sprite_maps       = sk_realloc_t(spritemap_t, sprite_maps, sprite_map_count);
+			map               = &sprite_maps[sprite_map_count-1];
+
+			*map = {};
+			map->id       = map_id;
+			map->material = sprite_create_material(sprite_index);
+			sprite_drawer_add_buffer(map->material);
+		}
+
+		// Add a sprite to the list
+		if (map->sprite_count + 1 > map->sprite_cap) {
+			map->sprite_cap = maxi(1, map->sprite_cap * 2);
+			map->sprites    = sk_realloc_t(sprite_t, map->sprites, map->sprite_cap);
+		}
+		map->sprites[map->sprite_count] = result;
+		map->sprite_count += 1;
+
+		result->buffer_index = index;
+	}
+
+	// The sprite finalizes through a task gated on the image, so creation
+	// never stalls on the image's metadata parse.
+	static const asset_action_t actions[] = { { sprite_finalize } };
+	asset_task_t task  = {};
+	task.asset         = &result->header;
+	task.on_failure    = sprite_finalize_failed;
+	task.actions       = (asset_action_t*)actions;
+	task.action_count  = _countof(actions);
+	task.priority      = asset_priority_default;
+	task.sort          = asset_sort(asset_priority_default, 0);
+	task.depends_on    = (asset_header_t*)image;
+	task.depends_state = asset_state_loaded_meta;
+	assets_add_task(task);
+
+	sprite_index += 1;
+	return result;
+}
+
+///////////////////////////////////////////
+
+sprite_t sprite_create_file(const char *filename, sprite_type_ type, const char *atlas_id) {
+	// Sprites are small and read up close, so they stay pixel exact.
+	tex_t image = tex_create_file(filename, tex_data_srgb | tex_data_compress_none);
+	if (image == nullptr) return nullptr;
+
+	tex_set_address(image, tex_address_clamp);
+	sprite_t result = sprite_create(image, type, atlas_id);
+	tex_release(image);
+	return result;
+}
+
+///////////////////////////////////////////
+
+void sprite_addref(sprite_t sprite) {
+	assets_addref(&sprite->header);
+}
+
+///////////////////////////////////////////
+
+void sprite_release(sprite_t sprite) {
+	if (sprite == nullptr)
+		return;
+	assets_releaseref(&sprite->header);
+}
+
+///////////////////////////////////////////
+
+// Placeholder dimensions until the image's metadata arrives, corrected by the
+// next draw. Blocking here would stall the frame on a still-streaming file.
+
+float sprite_get_aspect(sprite_t sprite) {
+	if (tex_asset_state(sprite->texture) < asset_state_loaded_meta) return 1;
+	return tex_get_width(sprite->texture) / (float)tex_get_height(sprite->texture);
+}
+
+///////////////////////////////////////////
+
+int32_t sprite_get_width(sprite_t sprite) {
+	if (tex_asset_state(sprite->texture) < asset_state_loaded_meta) return 0;
+	return tex_get_width(sprite->texture);
+}
+
+///////////////////////////////////////////
+
+int32_t sprite_get_height(sprite_t sprite) {
+	if (tex_asset_state(sprite->texture) < asset_state_loaded_meta) return 0;
+	return tex_get_height(sprite->texture);
+}
+
+///////////////////////////////////////////
+
+vec2 sprite_get_dimensions_normalized(sprite_t sprite) {
+	float aspect = sprite_get_aspect(sprite);
+	return aspect > 1
+		? vec2{ 1, 1.0f / aspect }
+		: vec2{ aspect, 1 };
+}
+
+///////////////////////////////////////////
+
+void sprite_destroy(sprite_t sprite) {
+	tex_release     (sprite->texture);
+	material_release(sprite->material);
+	*sprite = {};
+}
+
+///////////////////////////////////////////
+
+void sprite_draw(sprite_t sprite, matrix transform, pivot_ pivot_position, color32 color, render_layer_ layer) {
+	sprite_drawer_add_at(sprite, transform, pivot_position, color, layer);
+}
+
+
+} // namespace sk

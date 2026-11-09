@@ -1,0 +1,207 @@
+# Start with the native types that don't follow our rules
+int int
+int8_t sbyte
+int16_t short
+int32_t int
+int64_t long
+uint8_t byte
+uint16_t ushort
+uint32_t uint
+uint64_t ulong
+# bool32_t is handled specially in the binder (MarshalAs)
+# bool32_t int
+float float
+double double
+void void
+char32_t uint
+spatial_entity_t ulong
+# Hand-written API capitalizes acronyms, like Color.HSV and Renderer.SetFOV
+gpu_memory_t GPUMemory
+# Match the casing of TryGetBounds2D and friends
+spatial_component_bounds2d Bounds2D
+spatial_component_bounds3d Bounds3D
+spatial_component_mesh2d   Mesh2D
+spatial_capability_qr_code  QRCode
+spatial_capability_micro_qr MicroQR
+marker_type_qr_code         QRCode
+marker_type_micro_qr        MicroQR
+spatial_capability_aruco    ArUco
+marker_type_aruco           ArUco
+aruco_dict_                 ArUcoDict
+# Byte order differs from System.Guid, so this converts by hand
+sk_uuid_t NativeUuid
+
+# Keyboard keys by default resolve to just numbers, no bueno
+key_0 N0
+key_1 N1
+key_2 N2
+key_3 N3
+key_4 N4
+key_5 N5
+key_6 N6
+key_7 N7
+key_8 N8
+key_9 N9
+
+key_lcmd LCmd
+key_rcmd RCmd
+
+input_xy_ InputXY
+
+# Same with render_layer_!
+render_layer_0 Layer0
+render_layer_1 Layer1
+render_layer_2 Layer2
+render_layer_3 Layer3
+render_layer_4 Layer4
+render_layer_5 Layer5
+render_layer_6 Layer6
+render_layer_7 Layer7
+render_layer_8 Layer8
+render_layer_9 Layer9
+render_layer_ui UI
+
+compute_buffer_type_readwrite ReadWrite
+
+material_param_uint UInt
+material_param_uint2 UInt2
+material_param_uint3 UInt3
+material_param_uint4 UInt4
+
+log_ LogLevel
+log_inform Info
+
+backend_xr_type_ BackendXRType
+backend_xr_type_webxr WebXR
+backend_xr_type_openxr OpenXR
+backend_graphics_d3d11 D3D11
+
+app_mode_xr XR
+
+backend_graphics_opengl_glx OpenGL_GLX
+backend_graphics_opengl_wgl OpenGL_WGL
+backend_graphics_opengles_egl OpenGLES_EGL
+backend_graphics_webgl WebGL
+backend_graphics_vulkan Vulkan
+
+device_tracking_3dof DoF3
+device_tracking_6dof DoF6
+
+display_mode_mixedreality MixedReality
+tex_format_depthstencil DepthStencil
+button_state_ BtnState
+color128 Color
+transparency_msaa MSAA
+
+sk_settings_t SKSettings
+backend_vulkan_request_t BackendVulkanRequest
+vind_t uint
+vert_t Vertex
+vert_component_t VertComponent
+model_node_id int
+sh_light_t SHLight
+openxr_handle_t ulong
+asset_t IntPtr
+
+size_t UIntPtr
+
+# UI types - need correct names for function parameters (hand-written structs)
+ui_lathe_pt_t UILathePt
+ui_settings_t UISettings
+ui_slider_data_t UISliderData
+
+# UI enum naming - use uppercase UI prefix to match existing code
+ui_move_ UIMove
+ui_win_ UIWin
+ui_confirm_ UIConfirm
+ui_gesture_ UIGesture
+ui_notify_ UINotify
+ui_vis_ UIVisual
+ui_color_ UIColor
+ui_color_state_ UIColorState
+ui_pad_ UIPad
+ui_btn_layout_ UIBtnLayout
+ui_btn_flag_ UIBtnFlag
+ui_cut_ UICut
+ui_dir_ UIDir
+ui_corner_ UICorner
+ui_scroll_ UIScroll
+
+# The acoustic environment parameter struct
+audio_env_t AudioEnvironment
+
+# Skip code generation for hand-written types (use @noimpl directive)
+# Math types with operators, constructors, helpers
+@noimpl vec2 vec3 vec4 color32 color128 quat matrix
+@noimpl pose_t bounds_t ray_t plane_t sphere_t
+
+# Complex structs in NativeTypes.cs with special handling
+@noimpl sk_settings_t rect_t sound_play_t
+@noimpl hand_sim_id_t id_hash_t sk_uuid_t
+# Request struct has string/feature arrays, hand-marshaled in Backend.Vulkan.Request
+@noimpl backend_vulkan_request_t
+# Keeps the raw codepoint private so readers use Text, which can't truncate
+@noimpl keyboard_event_t
+
+# UI types with special handling
+# (none currently)
+
+# Structs with existing hand-written versions elsewhere
+@noimpl hand_joint_t sound_inst_t gradient_key_t sh_light_t
+@noimpl vert_t vert_component_t
+
+# Functions with hand-written bindings in NativeAPI.Custom.cs
+# render_to/render_list_draw_now take render_settings_t by typed ref there,
+# rather than the generator's IntPtr.
+@noimpl render_to render_list_draw_now
+# sound_generate's callback is the batch delegate, and sound_create_mem takes
+# a raw byte blob - neither is inferable from the void*/fnptr signature.
+@noimpl sound_generate sound_create_mem
+# Hands back a pointer to registry-owned vertices, not a caller array
+@noimpl spatial_entity_get_polygon
+@noimpl spherical_harmonics_t hand_t controller_t file_filter_t
+# Request takes arrays of strings/features, hand-marshaled in NativeAPI.Custom.cs
+@noimpl backend_vulkan_request
+
+# Enums with hand-written struct implementations
+@noimpl text_align_
+
+# Delegate naming overrides (to match existing wrapper code naming conventions)
+xr_poll_event_callback XRPollEventCallback
+xr_pre_session_create_callback XRPreSessionCreateCallback
+picker_callback PickerCallback
+
+# Delegates with hand-written public API versions that have DIFFERENT signatures
+# (e.g., no context param for user convenience). Skip these, keep hand-written.
+@noimpl LogCallback ScreenshotCallback
+
+# Delegates that need different parameter types than generator produces
+# (e.g., Color32* should be IntPtr, bool32_t should be int for some callbacks)
+@noimpl RenderOnScreenshotCallback PickerCallback PickerCallbackSz
+
+# Delegates that are defined in NativeTypes.cs with hand-written wrappers
+@noimpl XRPollEventCallback XRPreSessionCreateCallback
+
+# Public API delegates that need XML documentation (hand-written in NativeTypes.cs)
+@noimpl AppStep AppShutdown AssetOnLoadCallback AudioGenerator InputEventCallback
+# Marker dictionary names start with digits, which C# identifiers can't
+aruco_dict_4x4_50   Dict4x4_50
+aruco_dict_4x4_100  Dict4x4_100
+aruco_dict_4x4_250  Dict4x4_250
+aruco_dict_4x4_1000 Dict4x4_1000
+aruco_dict_5x5_50   Dict5x5_50
+aruco_dict_5x5_100  Dict5x5_100
+aruco_dict_5x5_250  Dict5x5_250
+aruco_dict_5x5_1000 Dict5x5_1000
+aruco_dict_6x6_50   Dict6x6_50
+aruco_dict_6x6_100  Dict6x6_100
+aruco_dict_6x6_250  Dict6x6_250
+aruco_dict_6x6_1000 Dict6x6_1000
+aruco_dict_7x7_50   Dict7x7_50
+aruco_dict_7x7_100  Dict7x7_100
+aruco_dict_7x7_250  Dict7x7_250
+aruco_dict_7x7_1000 Dict7x7_1000
+april_tag_dict_16h5  Tag16h5
+april_tag_dict_25h9  Tag25h9
+april_tag_dict_36h10 Tag36h10
+april_tag_dict_36h11 Tag36h11

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<Import Project="$(MSBuildThisFileDirectory)SKAssets.targets" />
+	<Import Project="$(MSBuildThisFileDirectory)SKShaders.targets" />
+
+	<!-- Copy the package's native libraries into the project, for those
+	     platforms that require it. -->
+	<Target Name="StereoKit_Libraries" BeforeTargets="AfterBuild" AfterTargets="StereoKit_Properties" Condition="'$(OutputType)'!='Library' or '$(SKBuildPlatform)'=='Android'">
+		<Message Importance="high" Text="[StereoKit NuGet] Copying native libraries for .NET $(SKBuildNET) $(SKBuildPlatform)."/>
+		<Message Importance="high" Condition= "'$(SKBuildPlatform)'=='Android'" Text="[StereoKit NuGet] Using the $(SKOpenXRLoader) &lt;SKOpenXRLoader&gt; version of the Android OpenXR loader."/>
+		<Error Condition="'$(SKBuildPlatform)'=='Android' and '$(SKOpenXRLoader)'!='None' and !Exists('$(MSBuildThisFileDirectory)../android_openxr_loaders/$(SKOpenXRLoader.ToLower())/arm64/libopenxr_loader.so') and !Exists('$(MSBuildThisFileDirectory)../android_openxr_loaders/$(SKOpenXRLoader.ToLower())/x64/libopenxr_loader.so') and !Exists('$(SKOpenXRLoaderFolder)$(SKOpenXRLoader)/arm64/libopenxr_loader.so') and !Exists('$(SKOpenXRLoaderFolder)$(SKOpenXRLoader)/x64/libopenxr_loader.so')" Text="StereoKit could not find the Android OpenXR Loader indicated by &lt;SKOpenXRLoader&gt;! Please copy your platform specific libopenxr_loader.so file in this folder: $(SKOpenXRLoaderFolder)$(SKOpenXRLoader)/[x64|arm64]/" />
+
+		<!-- The managed .pdb is not copied by default, so we copy it here to
+		     enable debugging of the managed dll.-->
+		<Copy
+			SourceFiles        = "$(MSBuildThisFileDirectory)../lib/net8.0/StereoKit.pdb"
+			DestinationFolder  = "$(OutputPath)"
+			SkipUnchangedFiles = "true"/>
+		
+		<ItemGroup Condition="'$(SKBuildPlatform)'=='Desktop'">
+			<SKSourceFolder Include="$(MSBuildThisFileDirectory)../runtimes/linux-arm64/*.*" />
+			<SKSourceFolder Include="$(MSBuildThisFileDirectory)../runtimes/linux-x64/*.*" />
+			<SKSourceFolder Include="$(MSBuildThisFileDirectory)../runtimes/osx-arm64/*.*" />
+			<SKSourceFolder Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/*.*" />
+			<SKSourceFolder Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/*.*" />
+		</ItemGroup>
+		<Copy
+			SourceFiles        = "@(SKSourceFolder)"
+			DestinationFolder  = "$(BaseIntermediateOutputPath)lib/%(RecursiveDir)"
+			SkipUnchangedFiles = "true"/>
+
+	</Target>
+
+	<!-- Link libraries directly in Maui Android projects. -->
+	<ItemGroup>
+		<AndroidNativeLibrary Abi="arm64-v8a" Include="$(MSBuildThisFileDirectory)../runtimes/android-arm64/native/libStereoKitC.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+		<AndroidNativeLibrary Abi="x86_64" Include="$(MSBuildThisFileDirectory)../runtimes/android-x64/native/libStereoKitC.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+		<AndroidNativeLibrary Condition="'$(SKOpenXRLoader)'!='None'" Abi="arm64-v8a" Include="$(MSBuildThisFileDirectory)../android_openxr_loaders/$(SKOpenXRLoader.ToLower())/arm64/*.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+		<AndroidNativeLibrary Condition="'$(SKOpenXRLoader)'!='None'" Abi="x86_64" Include="$(MSBuildThisFileDirectory)../android_openxr_loaders/$(SKOpenXRLoader.ToLower())/x64/*.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+		<AndroidNativeLibrary Condition="'$(SKOpenXRLoader)'!='None'" Abi="arm64-v8a" Include="$(SKOpenXRLoaderFolder)$(SKOpenXRLoader)/arm64/*.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+		<AndroidNativeLibrary Condition="'$(SKOpenXRLoader)'!='None'" Abi="x86_64" Include="$(SKOpenXRLoaderFolder)$(SKOpenXRLoader)/x64/*.so">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</AndroidNativeLibrary>
+	</ItemGroup>
+
+	<!-- Include sk_app Java classes for Android (file dialogs, activity results) -->
+	<ItemGroup>
+		<AndroidJavaLibrary Include="$(MSBuildThisFileDirectory)sk_app.jar" Condition="Exists('$(MSBuildThisFileDirectory)sk_app.jar')" />
+	</ItemGroup>
+
+</Project>

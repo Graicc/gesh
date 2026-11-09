@@ -1,0 +1,170 @@
+﻿using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace StereoKit
+{
+	/// <summary>A Sprite is an image that's set up for direct 2D rendering,
+	/// without using a mesh or model! This is technically a wrapper over a
+	/// texture, but it also includes atlasing functionality, which can be
+	/// pretty important to performance! This is used a lot in UI, for image
+	/// rendering.
+	/// 
+	/// Atlasing is not currently implemented, it'll swap to Single for now.
+	/// But here's how it works!
+	/// 
+	/// StereoKit will batch your sprites into an atlas if you ask it to!
+	/// This puts all the images on a single texture to significantly reduce
+	/// draw calls when many images are present. Any time you add a sprite to
+	/// an atlas, it'll be marked as dirty and rebuilt at the end of the
+	/// frame. So it can be a good idea to add all your images to the atlas
+	/// on initialize rather than during execution!
+	/// 
+	/// Since rendering is atlas based, you also have only one material per
+	/// atlas. So this is why you might wish to put a sprite in one atlas or
+	/// another, so you can apply different</summary>
+	public class Sprite : IAsset
+	{
+		internal IntPtr _inst;
+
+		/// <summary>Gets or sets the unique identifier of this asset resource!
+		/// This can be helpful for debugging, managing your assets, or finding
+		/// them later on!</summary>
+		public string Id
+		{
+			get => Marshal.PtrToStringAnsi(NativeAPI.sprite_get_id(_inst));
+			set => NativeAPI.sprite_set_id(_inst, value);
+		}
+		
+		/// <summary>The aspect ratio of the sprite! This is width/height. 
+		/// You may also be interested in the NormalizedDimensions property, 
+		/// which are normalized to the 0-1 range.</summary>
+		public float Aspect => NativeAPI.sprite_get_aspect(_inst);
+		/// <summary>Width of the sprite, in pixels.</summary>
+		public int   Width  => NativeAPI.sprite_get_width(_inst);
+		/// <summary>Height of the sprite, in pixels.</summary>
+		public int   Height => NativeAPI.sprite_get_height(_inst);
+		/// <summary>Width and height of the sprite, normalized so the
+		/// maximum value is 1.</summary>
+		public Vec2 NormalizedDimensions 
+			=> NativeAPI.sprite_get_dimensions_normalized(_inst);
+
+		internal Sprite(IntPtr inst)
+		{
+			_inst = inst;
+			if (_inst == IntPtr.Zero)
+				Log.Err("Received an empty sprite!");
+		}
+		/// <summary>Release reference to the StereoKit asset.</summary>
+		~Sprite()
+		{
+			if (_inst != IntPtr.Zero)
+				NativeAPI.assets_releaseref_threadsafe(_inst);
+		}
+
+		/// <summary>Draws the sprite at the location specified by the
+		/// transform matrix. A sprite is always sized in model space as 1 x
+		/// Aspect meters on the x and y axes respectively, so scale
+		/// appropriately. The 'position' attribute describes what corner of
+		/// the sprite you're specifying the transform of.</summary>
+		/// <param name="transform">A Matrix describing a transform from 
+		/// model space to world space. A sprite is always sized in model
+		/// space as 1 x Aspect meters on the x and y axes respectively, so
+		/// scale appropriately and remember that your anchor position may
+		/// affect the transform as well.</param>
+		/// <param name="pivotPosition">Describes what corner of the sprite
+		/// you're specifying the transform of. The 'Pivot' point or
+		/// 'Origin' of the Sprite.</param>
+		/// <param name="layer">The RenderLayer this sprite should be drawn on.
+		/// This defaults to RenderLayer.Layer0.</param>
+		public void Draw(in Matrix transform, Pivot pivotPosition, RenderLayer layer = RenderLayer.Layer0)
+			=> NativeAPI.sprite_draw(_inst, transform, pivotPosition, Color32.White, layer);
+
+		/// <inheritdoc cref="Draw(in Matrix, Pivot, RenderLayer)"/>
+		/// <param name="linearColor">Per-instance color data for this render
+		/// item. It is unmodified by StereoKit, and is generally interpreted
+		/// as linear.</param>
+		public void Draw(in Matrix transform, Pivot anchorPosition, Color32 linearColor, RenderLayer layer = RenderLayer.Layer0)
+			=> NativeAPI.sprite_draw(_inst, transform, anchorPosition, linearColor, layer);
+
+		/// <summary>Finds a sprite that matches the given id! Check out the
+		/// DefaultIds static class for some built-in ids. Sprites will auto-id
+		/// themselves using this pattern if single sprites: {Tex.Id}/sprite,
+		/// and this pattern if atlased sprites: {Tex.Id}/sprite/atlas/{atlasId}.
+		/// </summary>
+		/// <param name="id">Id of the sprite asset.</param>
+		/// <returns>A Sprite asset with the given id, or null if none is
+		/// found.</returns>
+		public static Sprite Find(string id)
+		{
+			IntPtr sprite = NativeAPI.sprite_find(id);
+			return sprite == IntPtr.Zero ? null : new Sprite(sprite);
+		}
+
+		/// <summary>Create a sprite from an image file! This loads a Texture
+		/// from file, and then uses that Texture as the source for the 
+		/// Sprite.</summary>
+		/// <param name="file">The filename of the image, an absolute 
+		/// filename, or a filename relative to the assets folder. Supports 
+		/// jpg, png, tga, bmp, psd, gif, hdr, pic.</param>
+		/// <param name="type">Should this sprite be atlased, or an
+		/// individual image? Adding this as an atlased image is better for
+		/// performance, but will cause the atlas to be rebuilt! Images that
+		/// take up too much space on the atlas, or might be loaded or 
+		/// unloaded during runtime may be better as Single rather than
+		/// Atlased!</param>
+		/// <param name="atlasId">The name of which atlas the sprite should
+		/// belong to, this is only relevant if the SpriteType is Atlased.
+		/// </param>
+		/// <returns>A Sprite asset, or null if the image failed to load!
+		/// </returns>
+		public static Sprite FromFile(string file, SpriteType type = SpriteType.Atlased, string atlasId = "default")
+		{
+			IntPtr inst = NativeAPI.sprite_create_file(file, type, atlasId);
+			return inst == IntPtr.Zero ? null : new Sprite(inst);
+		}
+
+		/// <summary>Create a sprite from a Texture object!</summary>
+		/// <param name="image">The texture to build a sprite from. Must be a
+		/// valid, 2D image!</param>
+		/// <param name="type">Should this sprite be atlased, or an
+		/// individual image? Adding this as an atlased image is better for
+		/// performance, but will cause the atlas to be rebuilt! Images that
+		/// take up too much space on the atlas, or might be loaded or
+		/// unloaded during runtime may be better as Single rather than
+		/// Atlased!</param>
+		/// <param name="atlasId">The name of which atlas the sprite should 
+		/// belong to, this is only relevant if the SpriteType is Atlased.
+		/// </param>
+		/// <returns>A Sprite asset, or null if the image failed when adding
+		/// to the sprite system!</returns>
+		public static Sprite FromTex(Tex image, SpriteType type = SpriteType.Atlased, string atlasId = "default")
+		{
+			IntPtr inst = NativeAPI.sprite_create(image._inst, type, atlasId);
+			return inst == IntPtr.Zero ? null : new Sprite(inst);
+		}
+
+		/// <inheritdoc cref="Default.SpriteRadioOn" />
+		public static Sprite RadioOn => Default.SpriteRadioOn;
+		/// <inheritdoc cref="Default.SpriteRadioOff" />
+		public static Sprite RadioOff => Default.SpriteRadioOff;
+		/// <inheritdoc cref="Default.SpriteToggleOn" />
+		public static Sprite ToggleOn => Default.SpriteToggleOn;
+		/// <inheritdoc cref="Default.SpriteToggleOff" />
+		public static Sprite ToggleOff => Default.SpriteToggleOff;
+		/// <inheritdoc cref="Default.SpriteArrowLeft" />
+		public static Sprite ArrowLeft => Default.SpriteArrowLeft;
+		/// <inheritdoc cref="Default.SpriteArrowRight" />
+		public static Sprite ArrowRight => Default.SpriteArrowRight;
+		/// <inheritdoc cref="Default.SpriteArrowUp" />
+		public static Sprite ArrowUp => Default.SpriteArrowUp;
+		/// <inheritdoc cref="Default.SpriteArrowDown" />
+		public static Sprite ArrowDown => Default.SpriteArrowDown;
+		/// <inheritdoc cref="Default.SpriteBackspace" />
+		public static Sprite Backspace => Default.SpriteBackspace;
+		/// <inheritdoc cref="Default.SpriteShift" />
+		public static Sprite Shift => Default.SpriteShift;
+		/// <inheritdoc cref="Default.SpriteClose" />
+		public static Sprite Close => Default.SpriteClose;
+	}
+}

@@ -1,0 +1,472 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name":        "Fast",
+      "description": "Disable tests and use ThinLTO for faster builds",
+      "hidden":      true,
+      "cacheVariables": {
+        "SK_BUILD_TESTS": "OFF",
+        "SK_THIN_LTO":    "ON"
+      }
+    },
+    {
+      "name":        "Tests",
+      "description": "Static StereoKitC, so SKTests can reach unexported internals",
+      "hidden":      true,
+      "cacheVariables": {
+        "SK_BUILD_TESTS":       "ON",
+        "SK_BUILD_SHARED_LIBS": "OFF"
+      }
+    },
+    {
+      "name":        "BuildType_Debug",
+      "description": "Debug build type",
+      "hidden":      true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name":        "BuildType_Release",
+      "description": "Release build type",
+      "hidden":      true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name":        "Win32_Release_MT_Flags",
+      "description": "Static CRT for Win32 Release builds (requires CMP0091 NEW)",
+      "hidden":      true,
+      "cacheVariables": {
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded"
+      }
+    },
+    {
+      "name":        "Win32_Base",
+      "description": "Base configuration for Windows",
+      "hidden":      true,
+      "condition": {
+        "type": "equals",
+        "lhs":  "${hostSystemName}",
+        "rhs":  "Windows"
+      }
+    },
+    {
+      "name":      "Win32_x64_Base",
+      "inherits":  "Win32_Base",
+      "hidden":    true,
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_x64"
+    },
+    {
+      "name":        "Win32_x64_Release",
+      "description": "Release build for Win32 x64",
+      "inherits":    ["Win32_x64_Base", "Win32_Release_MT_Flags"]
+    },
+    {
+      "name":       "Win32_x64_Release_Fast",
+      "inherits":   ["Win32_x64_Release", "Fast"],
+      "binaryDir":  "${sourceDir}/bin/intermediate/Win32_x64_Fast"
+    },
+    {
+      "name":        "Win32_x64_Debug",
+      "description": "Debug build for Win32 x64",
+      "inherits":    "Win32_x64_Base"
+    },
+    {
+      "name":      "Win32_x64_Debug_Fast",
+      "inherits":  ["Win32_x64_Debug", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_x64_Fast"
+    },
+    {
+      "name":         "Win32_Arm64_Base",
+      "inherits":     "Win32_Base",
+      "hidden":       true,
+      "architecture": "ARM64",
+      "binaryDir":    "${sourceDir}/bin/intermediate/Win32_Arm64"
+    },
+    {
+      "name":        "Win32_Arm64_Debug",
+      "description": "Debug build for Win32 Arm64",
+      "inherits":    "Win32_Arm64_Base"
+    },
+    {
+      "name":      "Win32_Arm64_Debug_Fast",
+      "inherits":  ["Win32_Arm64_Debug", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_Arm64_Fast"
+    },
+    {
+      "name":        "Win32_Arm64_Release",
+      "description": "Release build for Win32 Arm64",
+      "inherits":    ["Win32_Arm64_Base", "Win32_Release_MT_Flags"]
+    },
+    {
+      "name":      "Win32_Arm64_Release_Fast",
+      "inherits":  ["Win32_Arm64_Release", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_Arm64_Fast"
+    },
+    {
+      "name":        "MinGW",
+      "description": "Cross-compile for Windows using MinGW",
+      "hidden":      true,
+      "generator":   "Ninja",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME":         "Windows",
+        "CMAKE_FIND_ROOT_PATH_MODE_PROGRAM": "NEVER",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY"
+      },
+      "condition": {
+        "type": "notEquals",
+        "lhs":  "${hostSystemName}",
+        "rhs":  "Windows"
+      }
+    },
+    {
+      "name":      "MinGW_x64_Base",
+      "inherits":  "MinGW",
+      "hidden":    true,
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_x64",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER":   "x86_64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "x86_64-w64-mingw32-g++",
+        "CMAKE_RC_COMPILER":  "x86_64-w64-mingw32-windres"
+      }
+    },
+    {
+      "name":        "MinGW_x64_Release",
+      "description": "Release cross-compile for Win32 x64 using MinGW",
+      "inherits":    ["MinGW_x64_Base", "BuildType_Release"]
+    },
+    {
+      "name":      "MinGW_x64_Release_Fast",
+      "inherits":  ["MinGW_x64_Release", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_x64_Fast"
+    },
+    {
+      "name":        "MinGW_x64_Debug",
+      "description": "Debug cross-compile for Win32 x64 using MinGW",
+      "inherits":    ["MinGW_x64_Base", "BuildType_Debug"]
+    },
+    {
+      "name":      "MinGW_x64_Debug_Fast",
+      "inherits":  ["MinGW_x64_Debug", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_x64_Fast"
+    },
+    {
+      "name":      "MinGW_Arm64_Base",
+      "inherits":  "MinGW",
+      "hidden":    true,
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_Arm64",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER":   "aarch64-w64-mingw32-gcc",
+        "CMAKE_CXX_COMPILER": "aarch64-w64-mingw32-g++",
+        "CMAKE_RC_COMPILER":  "aarch64-w64-mingw32-windres"
+      }
+    },
+    {
+      "name":        "MinGW_Arm64_Release",
+      "description": "Release cross-compile for Win32 Arm64 using MinGW (requires llvm-mingw)",
+      "inherits":    ["MinGW_Arm64_Base", "BuildType_Release"]
+    },
+    {
+      "name":      "MinGW_Arm64_Release_Fast",
+      "inherits":  ["MinGW_Arm64_Release", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_Arm64_Fast"
+    },
+    {
+      "name":        "MinGW_Arm64_Debug",
+      "description": "Debug cross-compile for Win32 Arm64 using MinGW (requires llvm-mingw)",
+      "inherits":    ["MinGW_Arm64_Base", "BuildType_Debug"]
+    },
+    {
+      "name":      "MinGW_Arm64_Debug_Fast",
+      "inherits":  ["MinGW_Arm64_Debug", "Fast"],
+      "binaryDir": "${sourceDir}/bin/intermediate/Win32_Arm64_Fast"
+    },
+    {
+      "name":        "Linux",
+      "description": "Build for Linux",
+      "hidden":      true,
+      "generator":   "Ninja",
+      "condition": {
+        "type": "equals",
+        "lhs":  "${hostSystemName}",
+        "rhs":  "Linux"
+      }
+    },
+    {
+      "name":        "Linux_x64",
+      "description": "Build for Linux x64 with clang/LLVM toolchain",
+      "hidden":      true,
+      "inherits":    "Linux",
+      "toolchainFile":  "${sourceDir}/cmake/LinuxClangToolchain.cmake"
+    },
+    {
+      "name":        "Linux_x64_Release",
+      "description": "Release build for Linux x64",
+      "hidden":      false,
+      "inherits":    "Linux_x64",
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_x64_Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name":        "Linux_x64_Release_Fast",
+      "inherits":    ["Linux_x64_Release", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_x64_Release_Fast"
+    },
+    {
+      "name":        "Linux_x64_Debug",
+      "description": "Debug build for Linux x64",
+      "hidden":      false,
+      "inherits":    "Linux_x64",
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_x64_Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name":        "Linux_x64_Debug_Fast",
+      "inherits":    ["Linux_x64_Debug", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_x64_Debug_Fast"
+    },
+    {
+      "name":        "Linux_x64_Tests",
+      "description": "Debug build for Linux x64 native tests (SKTests)",
+      "inherits":    ["Tests", "Linux_x64_Debug"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_x64_Tests"
+    },
+    {
+      "name":        "Linux_Arm64",
+      "description": "Cross-compile for Linux Arm64",
+      "hidden":      true,
+      "inherits":    "Linux",
+      "toolchainFile": "${sourceDir}/cmake/LinuxArm64Toolchain.cmake"
+    },
+    {
+      "name":        "Linux_Arm64_Release",
+      "description": "Release build for Linux Arm64",
+      "inherits":    ["Linux_Arm64", "BuildType_Release"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_Arm64_Release"
+    },
+    {
+      "name":        "Linux_Arm64_Release_Fast",
+      "inherits":    ["Linux_Arm64_Release", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_Arm64_Release_Fast"
+    },
+    {
+      "name":        "Linux_Arm64_Debug",
+      "description": "Debug build for Linux Arm64",
+      "hidden":      false,
+      "inherits":    "Linux_Arm64",
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_Arm64_Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name":        "Linux_Arm64_Debug_Fast",
+      "inherits":    ["Linux_Arm64_Debug", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Linux_Arm64_Debug_Fast"
+    },
+    {
+      "name":        "MacOS",
+      "description": "Build for MacOS",
+      "hidden":      true,
+      "generator":   "Ninja",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Darwin",
+        "CMAKE_CXX_STANDARD": "17"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs":  "${hostSystemName}",
+        "rhs":  "Darwin"
+      }
+    },
+    {
+      "name":      "MacOS_Arm64_Base",
+      "inherits":  "MacOS",
+      "hidden":    true,
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name":        "MacOS_Arm64_Debug",
+      "description": "Debug build for MacOS ARM64",
+      "inherits":    ["MacOS_Arm64_Base", "BuildType_Debug"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/MacOS_Arm64_Debug"
+    },
+    {
+      "name":        "MacOS_Arm64_Debug_Fast",
+      "inherits":    ["MacOS_Arm64_Debug", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/MacOS_Arm64_Debug_Fast"
+    },
+    {
+      "name":        "MacOS_Arm64_Release",
+      "description": "Release build for MacOS ARM64",
+      "inherits":    ["MacOS_Arm64_Base", "BuildType_Release"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/MacOS_Arm64_Release"
+    },
+    {
+      "name":        "MacOS_Arm64_Release_Fast",
+      "inherits":    ["MacOS_Arm64_Release", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/MacOS_Arm64_Release_Fast"
+    },
+    {
+      "name":        "Android",
+      "description": "Build for Android",
+      "hidden":      true,
+      "generator":   "Ninja",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME":    "Android",
+        "CMAKE_ANDROID_NDK":    "$env{NDK}",
+        "ANDROID_PLATFORM":     "android-32",
+        "CMAKE_SYSTEM_VERSION": "32",
+        "DYNAMIC_LOADER":       "ON",
+        "SK_DYNAMIC_OPENXR":    "ON"
+      }
+    },
+    {
+      "name":      "Android_Arm64_Base",
+      "inherits":  "Android",
+      "hidden":    true,
+      "binaryDir": "${sourceDir}/bin/intermediate/Android_Arm64",
+      "cacheVariables": {
+        "ANDROID_ABI":            "arm64-v8a",
+        "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a"
+      }
+    },
+    {
+      "name":        "Android_Arm64_Debug",
+      "description": "Debug build for Android ARM64",
+      "inherits":    ["Android_Arm64_Base", "BuildType_Debug"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_Arm64_Debug"
+    },
+    {
+      "name":        "Android_Arm64_Debug_Fast",
+      "inherits":    ["Android_Arm64_Debug", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_Arm64_Debug_Fast"
+    },
+    {
+      "name":        "Android_Arm64_Release",
+      "description": "Release build for Android ARM64",
+      "inherits":    ["Android_Arm64_Base", "BuildType_Release"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_Arm64_Release"
+    },
+    {
+      "name":        "Android_Arm64_Release_Fast",
+      "inherits":    ["Android_Arm64_Release", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_Arm64_Release_Fast"
+    },
+    {
+      "name":      "Android_x64_Base",
+      "inherits":  "Android",
+      "hidden":    true,
+      "binaryDir": "${sourceDir}/bin/intermediate/Android_x64",
+      "cacheVariables": {
+        "ANDROID_ABI":            "x86_64",
+        "CMAKE_ANDROID_ARCH_ABI": "x86_64"
+      }
+    },
+    {
+      "name":        "Android_x64_Release",
+      "description": "Release build for Android x64",
+      "inherits":    ["Android_x64_Base", "BuildType_Release"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_x64_Release"
+    },
+    {
+      "name":        "Android_x64_Release_Fast",
+      "inherits":    ["Android_x64_Release", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_x64_Release_Fast"
+    },
+    {
+      "name":        "Android_x64_Debug",
+      "description": "Debug build for Android x64",
+      "inherits":    ["Android_x64_Base", "BuildType_Debug"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_x64_Debug"
+    },
+    {
+      "name":        "Android_x64_Debug_Fast",
+      "inherits":    ["Android_x64_Debug", "Fast"],
+      "binaryDir":   "${sourceDir}/bin/intermediate/Android_x64_Debug_Fast"
+    },
+    {
+      "name":        "Web_Release",
+      "description": "Build for Web",
+      "inherits":    "BuildType_Release",
+      "binaryDir":   "${sourceDir}/bin/intermediate/cmake/Web_Release",
+      "generator":   "Ninja",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE":          "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "$env{EMSDK_NODE}"
+      }
+    }
+  ],
+  "buildPresets": [
+      {
+        "name":             "Win32_Base",
+        "hidden":           true,
+        "jobs":             24,
+        "condition":        {"type":"equals","lhs":"${hostSystemName}","rhs":"Windows"}
+      },
+      {
+        "name":             "MinGW_Base",
+        "hidden":           true,
+        "jobs":             24,
+        "condition":        {"type":"notEquals","lhs":"${hostSystemName}","rhs":"Windows"}
+      },
+      {
+        "name":             "Default_Base",
+        "hidden":           true,
+        "jobs":             24
+      },
+      { "name":"Win32_x64_Debug",            "inherits":"Win32_Base",  "configuration":"Debug",   "configurePreset":"Win32_x64_Debug" },
+      { "name":"Win32_x64_Debug_Fast",       "inherits":"Win32_Base",  "configuration":"Debug",   "configurePreset":"Win32_x64_Debug_Fast" },
+      { "name":"Win32_x64_Release",          "inherits":"Win32_Base",  "configuration":"Release", "configurePreset":"Win32_x64_Release" },
+      { "name":"Win32_x64_Release_Fast",     "inherits":"Win32_Base",  "configuration":"Release", "configurePreset":"Win32_x64_Release_Fast" },
+      { "name":"Win32_Arm64_Debug",          "inherits":"Win32_Base",  "configuration":"Debug",   "configurePreset":"Win32_Arm64_Debug" },
+      { "name":"Win32_Arm64_Debug_Fast",     "inherits":"Win32_Base",  "configuration":"Debug",   "configurePreset":"Win32_Arm64_Debug_Fast" },
+      { "name":"Win32_Arm64_Release",        "inherits":"Win32_Base",  "configuration":"Release", "configurePreset":"Win32_Arm64_Release" },
+      { "name":"Win32_Arm64_Release_Fast",   "inherits":"Win32_Base",  "configuration":"Release", "configurePreset":"Win32_Arm64_Release_Fast" },
+      { "name":"MinGW_x64_Debug",            "inherits":"MinGW_Base",  "configuration":"Debug",   "configurePreset":"MinGW_x64_Debug" },
+      { "name":"MinGW_x64_Debug_Fast",       "inherits":"MinGW_Base",  "configuration":"Debug",   "configurePreset":"MinGW_x64_Debug_Fast" },
+      { "name":"MinGW_x64_Release",          "inherits":"MinGW_Base",  "configuration":"Release", "configurePreset":"MinGW_x64_Release" },
+      { "name":"MinGW_x64_Release_Fast",     "inherits":"MinGW_Base",  "configuration":"Release", "configurePreset":"MinGW_x64_Release_Fast" },
+      { "name":"MinGW_Arm64_Debug",          "inherits":"MinGW_Base",  "configuration":"Debug",   "configurePreset":"MinGW_Arm64_Debug" },
+      { "name":"MinGW_Arm64_Debug_Fast",     "inherits":"MinGW_Base",  "configuration":"Debug",   "configurePreset":"MinGW_Arm64_Debug_Fast" },
+      { "name":"MinGW_Arm64_Release",        "inherits":"MinGW_Base",  "configuration":"Release", "configurePreset":"MinGW_Arm64_Release" },
+      { "name":"MinGW_Arm64_Release_Fast",   "inherits":"MinGW_Base",  "configuration":"Release", "configurePreset":"MinGW_Arm64_Release_Fast" },
+      { "name":"Android_Arm64_Debug",        "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Android_Arm64_Debug" },
+      { "name":"Android_Arm64_Debug_Fast",   "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Android_Arm64_Debug_Fast" },
+      { "name":"Android_Arm64_Release",      "inherits":"Default_Base","configuration":"Release", "configurePreset":"Android_Arm64_Release" },
+      { "name":"Android_Arm64_Release_Fast", "inherits":"Default_Base","configuration":"Release", "configurePreset":"Android_Arm64_Release_Fast" },
+      { "name":"Android_x64_Release",        "inherits":"Default_Base","configuration":"Release", "configurePreset":"Android_x64_Release" },
+      { "name":"Android_x64_Release_Fast",   "inherits":"Default_Base","configuration":"Release", "configurePreset":"Android_x64_Release_Fast" },
+      { "name":"Android_x64_Debug",          "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Android_x64_Debug" },
+      { "name":"Android_x64_Debug_Fast",     "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Android_x64_Debug_Fast" },
+      { "name":"Linux_x64_Debug",            "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Linux_x64_Debug" },
+      { "name":"Linux_x64_Debug_Fast",       "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Linux_x64_Debug_Fast" },
+      { "name":"Linux_x64_Tests",            "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Linux_x64_Tests" },
+      { "name":"Linux_x64_Release",          "inherits":"Default_Base","configuration":"Release", "configurePreset":"Linux_x64_Release" },
+      { "name":"Linux_x64_Release_Fast",     "inherits":"Default_Base","configuration":"Release", "configurePreset":"Linux_x64_Release_Fast" },
+      { "name":"Linux_Arm64_Debug",          "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Linux_Arm64_Debug" },
+      { "name":"Linux_Arm64_Debug_Fast",     "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"Linux_Arm64_Debug_Fast" },
+      { "name":"Linux_Arm64_Release",        "inherits":"Default_Base","configuration":"Release", "configurePreset":"Linux_Arm64_Release" },
+      { "name":"Linux_Arm64_Release_Fast",   "inherits":"Default_Base","configuration":"Release", "configurePreset":"Linux_Arm64_Release_Fast" },
+      { "name":"MacOS_Arm64_Debug",          "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"MacOS_Arm64_Debug" },
+      { "name":"MacOS_Arm64_Debug_Fast",     "inherits":"Default_Base","configuration":"Debug",   "configurePreset":"MacOS_Arm64_Debug_Fast" },
+      { "name":"MacOS_Arm64_Release",        "inherits":"Default_Base","configuration":"Release", "configurePreset":"MacOS_Arm64_Release" },
+      { "name":"MacOS_Arm64_Release_Fast",   "inherits":"Default_Base","configuration":"Release", "configurePreset":"MacOS_Arm64_Release_Fast" },
+      { "name":"Web_Release",                                          "configuration":"Release", "configurePreset":"Web_Release", "jobs":16 }
+  ]
+}
