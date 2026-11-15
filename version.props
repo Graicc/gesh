@@ -1,0 +1,9 @@
+<Project>
+	<!--The app's version, in one place: the desktop and Android projects both
+	    import this, and Home's info page reads it from the assembly. Bump
+	    ApplicationVersion in Projects/Android/gesh.Android.csproj on each
+	    store upload too.-->
+	<PropertyGroup>
+		<Version>0.1.1</Version>
+	</PropertyGroup>
+</Project>

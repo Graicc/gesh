@@ -209,6 +209,19 @@ static void render_global_bind_buffer(const char* name, int32_t slot, material_b
 
 ///////////////////////////////////////////
 
+// gesh: clip region state, see render_push_clip.
+struct clip_twin_t {
+	material_t source;
+	int32_t    slot;
+	material_t twin;
+};
+static array_t<clip_twin_t> clip_twins      = {};
+static array_t<vec4>        clip_planes     = {}; // two per slot: top, bottom
+static int32_t              clip_active     = -1;
+static int32_t              clip_slot_count = 0;
+
+///////////////////////////////////////////
+
 bool render_init() {
 	profiler_zone();
 
@@ -258,6 +271,13 @@ void render_shutdown() {
 	for (int32_t i = 0; i < local.post_process.count; i++)
 		material_release(local.post_process[i]);
 	local.post_process.free();
+
+	for (int32_t i = 0; i < clip_twins.count; i++) {
+		material_release(clip_twins[i].source);
+		material_release(clip_twins[i].twin);
+	}
+	clip_twins .free();
+	clip_planes.free();
 
 	// Drain in-flight readbacks so their GPU resources aren't leaked at
 	// shutdown - blocks on each future, unlike the per-frame poll path.
@@ -323,6 +343,10 @@ const skr_vert_type_t* render_get_default_vert() {
 
 void render_step() {
 	profiler_zone();
+
+	if (clip_active != -1) log_err("A render clip was left pushed over the frame");
+	clip_active     = -1;
+	clip_slot_count = 0;
 
 	hierarchy_step();
 }
@@ -928,7 +952,43 @@ color128 render_get_clear_color_ln() {
 
 ///////////////////////////////////////////
 
+// gesh: clip regions. While one is pushed, meshes whose material's shader
+// has clip_top/clip_bottom params (the UI, font and unlit shaders) are drawn
+// with a copy of that material holding the region's planes, so they're cut
+// off at its edges. Each push in a frame gets its own slot, and each
+// material its own copy per slot, since the planes are read at draw time.
+
+void render_push_clip(vec4 top, vec4 bottom) {
+	if (clip_active != -1) { log_err("render_push_clip: clips don't nest, pop the last one first"); return; }
+	clip_active = clip_slot_count++;
+	if (clip_planes.count < clip_slot_count * 2) { clip_planes.add(top); clip_planes.add(bottom); }
+	else { clip_planes[clip_active*2] = top; clip_planes[clip_active*2+1] = bottom; }
+}
+
+void render_pop_clip() {
+	if (clip_active == -1) { log_err("render_pop_clip: no clip pushed"); return; }
+	clip_active = -1;
+}
+
+static material_t render_clip_twin(material_t material) {
+	clip_twin_t* found = nullptr;
+	for (int32_t i = 0; i < clip_twins.count; i++) {
+		if (clip_twins[i].source == material && clip_twins[i].slot == clip_active) { found = &clip_twins[i]; break; }
+	}
+	if (found == nullptr) {
+		// Held, so its address can't be reused by another material.
+		material_addref(material);
+		clip_twins.add({ material, clip_active, material_copy(material) });
+		found = &clip_twins.last();
+	}
+	material_set_vector4(found->twin, "clip_top",    clip_planes[clip_active*2]);
+	material_set_vector4(found->twin, "clip_bottom", clip_planes[clip_active*2+1]);
+	return found->twin;
+}
+
 void render_add_mesh(mesh_t mesh, material_t material, const matrix &transform, color128 color_linear, render_layer_ layer) {
+	if (clip_active != -1 && material_has_param(material, "clip_top", material_param_vector4))
+		material = render_clip_twin(material);
 	render_list_add_mesh(local.list_active, mesh, material, transform, color_linear, layer);
 }
 

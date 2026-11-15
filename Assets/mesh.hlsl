@@ -1,5 +1,7 @@
 #include "stereokit.hlsli"
 
+//--name = app/mesh
+
 //--color:color = 1,1,1,1
 //--tex_trans   = 0,0,1,1
 //--diffuse     = white
@@ -20,20 +22,16 @@ struct psIn {
 	float2 uv    : TEXCOORD0;
 	float4 color : COLOR0;
 	float3 world : TEXCOORD1;   // world-space position, interpolated
-	uint view_id : SV_RenderTargetArrayIndex;
 };
 
-psIn vs(vsIn input, uint id : SV_InstanceID) {
+psIn vs(vsIn input, sk_ids_t ids) {
 	psIn o;
-	o.view_id = id % sk_view_count;
-	id        = id / sk_view_count;
-
-	float4 world = mul(input.pos, sk_inst[id].world);
-	o.pos        = mul(world,     sk_viewproj[o.view_id]);
+	float4 world = mul(float4(input.pos.xyz, 1), sk_inst[ids.inst].world);
+	o.pos        = mul(world, sk_viewproj[ids.view]);
 	o.world      = world.xyz;
 
 	o.uv    = (input.uv * tex_trans.zw) + tex_trans.xy;
-	o.color = color * input.col * sk_inst[id].color;
+	o.color = color * input.col * sk_inst[ids.inst].color;
 	return o;
 }
 

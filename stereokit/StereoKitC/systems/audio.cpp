@@ -312,6 +312,11 @@ void audio_step() {
 void audio_shutdown() {
 	if (!au_offline) {
 		mic_stop();
+		// gesh: stop before uninit. miniaudio's uninit doesn't stop the device
+		// first, so it closed the stream while Android's AudioTrack thread
+		// could still be in the callback, the same crash as pausing had (see
+		// audio_pause). A paused device is already stopped.
+		if (!au_paused) ma_device_stop(&au_device);
 		// Uninit stops the audio thread, after this the mix can be drained
 		// from here safely.
 		ma_device_uninit(&au_device);
@@ -329,12 +334,15 @@ void audio_shutdown() {
 
 ///////////////////////////////////////////
 
+// gesh: pausing only stops the device, it doesn't destroy it. Destroying it
+// here crashed on the Quest: Android's AudioTrack thread could still be
+// running, and locked a mutex the uninit had already destroyed
+// ("FORTIFY: pthread_mutex_lock called on a destroyed mutex", tid AudioTrack).
 void audio_pause() {
 	if (au_paused || au_offline) return;
 
 	au_paused = true;
-	ma_device_stop  (&au_device);
-	ma_device_uninit(&au_device);
+	ma_device_stop(&au_device);
 }
 
 ///////////////////////////////////////////
@@ -343,15 +351,9 @@ void audio_resume() {
 	if (!au_paused || au_offline) return;
 
 	// On failure au_paused stays true, so a later resume can retry.
-	ma_result result = ma_device_init(&au_context, &au_config, &au_device);
+	ma_result result = ma_device_start(&au_device);
 	if (result != MA_SUCCESS) {
 		log_warnf("Failed to resume audio device, '%s'.", ma_result_description(result));
-		return;
-	}
-	result = ma_device_start(&au_device);
-	if (result != MA_SUCCESS) {
-		log_warnf("Failed to start audio device, '%s'.", ma_result_description(result));
-		ma_device_uninit(&au_device);
 		return;
 	}
 	au_paused = false;

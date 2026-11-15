@@ -556,7 +556,9 @@ void ui_settings(ui_settings_t settings) {
 	if (settings.rounding         == 0) settings.rounding= 7.5f * mm2m;
 	if (settings.separator_scale == 0) settings.separator_scale = 0.4f;
 
-	bool rebuild_meshes = skui_settings.rounding != settings.rounding;
+	// gesh: padding sizes the slider meshes too, so a change to it rebuilds
+	// them as well. Without this they kept the default padding's size.
+	bool rebuild_meshes = skui_settings.rounding != settings.rounding || skui_settings.padding != settings.padding;
 	skui_settings = settings;
 
 	if (rebuild_meshes) {
@@ -1071,14 +1073,14 @@ void ui_theme_visuals_update() {
 	color32 black        = {0,0,0,0};
 	color32 gray         = {200, 200, 200, 255};
 	color32 shadow_center = {0, 0, 0, 200};
-	color32 shadow_edge   = {0, 0, 0, 50 };
+	// gesh: no drop shadow behind buttons. It was a dark ring past the
+	// button's edge that wrote depth, so over empty air (the palm menu's
+	// strip has no panel behind it) it showed, and hid what was behind it.
 	const ui_lathe_pt_t lathe_button[] = {
 		{ {0,    -0.5f},  {0, 1}, white,         true  },
 		{ {1,    -0.5f},  {0, 1}, white,         false },
 		{ {1,    -0.5f},  {1, 0}, white,         true  },
-		{ {1,    -0.1f},  {1, 0}, white,         false },
-		{ {1.2f,  0.49f}, {0, 1}, black,         true, true },
-		{ {0.0f,  0.49f}, {0, 1}, shadow_center, true, true } };
+		{ {1,    -0.1f},  {1, 0}, white,         false } };
 	const ui_lathe_pt_t lathe_input[] = {
 		{ {0,    -0.1f }, { 0, 1}, gray,          true  },
 		{ {0.8f, -0.1f }, { 0, 1}, gray,          false },
@@ -1100,20 +1102,19 @@ void ui_theme_visuals_update() {
 		{ {1,  0.5f}, {1, 0}, white, false },
 		{ {1,  0.5f}, {0,-1}, white, true  },
 		{ {0,  0.5f}, {0,-1}, white, true  } };
+	// gesh: the slider's track and knob without the dark shadow ring around
+	// them, which read as a second shape behind the pill. The knob is a
+	// plain cylinder: a flat top and straight sides.
 	const ui_lathe_pt_t lathe_slider[] = {
 		{ {0,    -0.5f},  {0, 1}, white,       true  },
 		{ {1,    -0.5f},  {0, 1}, white,       false },
 		{ {1,    -0.5f},  {1, 0}, white,       true  },
-		{ {1,     0.5f},  {1, 0}, white_corner,false },
-		{ {1,     0.49f}, {0, 1}, shadow_edge, true  },
-		{ {2.0f,  0.49f}, {0, 1}, black,       false } };
+		{ {1,     0.5f},  {1, 0}, white_corner,false } };
 	const ui_lathe_pt_t lathe_slider_btn[] = {
 		{ {0,    -0.5f},  {0, 1}, white,       true  },
-		{ {0.8f, -0.5f},  {0, 1}, white,       true  },
-		{ {1,    -0.4f},  {1, 0}, white,       true  },
-		{ {1,     0.5f},  {1, 0}, white_corner,false },
-		{ {1,     0.49f}, {0, 1}, shadow_edge, true  },
-		{ {2.0f,  0.49f}, {0, 1}, black,       false } };
+		{ {1,    -0.5f},  {0, 1}, white,       false },
+		{ {1,    -0.5f},  {1, 0}, white,       true  },
+		{ {1,     0.5f},  {1, 0}, white_corner,false } };
 
 	bool needs_id = theme_mesh_button == nullptr;
 
@@ -1128,13 +1129,18 @@ void ui_theme_visuals_update() {
 	_ui_gen_quadrant_mesh(&theme_mesh_panel_top,    ui_corner_top,    panel_rounding, 8, true,  true, lathe_panel, _countof(lathe_panel));
 	_ui_gen_quadrant_mesh(&theme_mesh_panel_bot,    ui_corner_bottom, panel_rounding, 8, true,  true, lathe_panel, _countof(lathe_panel));
 
-	float slider_rounding = fminf(fmaxf(skui_settings.padding, ui_line_height() / 6.f) / 2.f, skui_settings.rounding * 0.65f);
+	// gesh: half the track's height (stereokit_ui.cpp's bar_height for a
+	// line high slider), so its ends are round: a pill.
+	float slider_rounding = fmaxf(skui_settings.padding, ui_line_height() / 6.f) / 2.f;
 	_ui_gen_quadrant_mesh(&theme_mesh_slider,       ui_corner_all,   slider_rounding, 5, false, true, lathe_slider, _countof(lathe_slider));
 	_ui_gen_quadrant_mesh(&theme_mesh_slider_left,  ui_corner_left,  slider_rounding, 5, true,  true, lathe_slider, _countof(lathe_slider));
 	_ui_gen_quadrant_mesh(&theme_mesh_slider_right, ui_corner_right, slider_rounding, 5, true,  true, lathe_slider, _countof(lathe_slider));
 
-	_ui_gen_quadrant_mesh(&theme_mesh_slider_pinch, ui_corner_all, fminf((ui_line_height() * 0.5f)/2.f, skui_settings.rounding), 5, false, true, lathe_slider_btn, _countof(lathe_slider_btn));
-	_ui_gen_quadrant_mesh(&theme_mesh_slider_push,  ui_corner_all, fminf((ui_line_height() * 0.55f)/2.f, skui_settings.rounding), 5, false, true, lathe_slider_btn, _countof(lathe_slider_btn));
+	// gesh: knobs are a circle scaled to the knob, like the round button
+	// (and drawn with its non quadrant material below), so the square push
+	// knob is a cylinder at any slider size.
+	_ui_gen_quadrant_mesh(&theme_mesh_slider_pinch, ui_corner_all, 0.5f, 8, false, false, lathe_slider_btn, _countof(lathe_slider_btn));
+	_ui_gen_quadrant_mesh(&theme_mesh_slider_push,  ui_corner_all, 0.5f, 8, false, false, lathe_slider_btn, _countof(lathe_slider_btn));
 	_ui_gen_quadrant_mesh(&theme_mesh_separator,    ui_corner_all, fminf((text_style_get_baseline(ui_get_text_style()) * 0.4f)/2.f, skui_settings.rounding * 0.1f),  3, false, true, lathe_slider, _countof(lathe_slider));
 	
 	float aura_mesh_radius = skui_aura_radius * 0.75f;
@@ -1200,8 +1206,8 @@ void ui_theme_visuals_assign() {
 	ui_set_element_visual(ui_vis_slider_line,          theme_mesh_slider,       theme_mat_transparent, {skui_settings.rounding * 0.35f, skui_settings.rounding * 0.35f});
 	ui_set_element_visual(ui_vis_slider_line_active,   theme_mesh_slider_left,  theme_mat_transparent, {skui_settings.rounding * 0.35f, skui_settings.rounding * 0.35f});
 	ui_set_element_visual(ui_vis_slider_line_inactive, theme_mesh_slider_right, theme_mat_transparent, {skui_settings.rounding * 0.35f, skui_settings.rounding * 0.35f});
-	ui_set_element_visual(ui_vis_slider_pinch,         theme_mesh_slider_pinch, theme_mat_transparent);
-	ui_set_element_visual(ui_vis_slider_push,          theme_mesh_slider_push,  theme_mat_transparent);
+	ui_set_element_visual(ui_vis_slider_pinch,         theme_mesh_slider_pinch, theme_mat_transparent_noq);
+	ui_set_element_visual(ui_vis_slider_push,          theme_mesh_slider_push,  theme_mat_transparent_noq);
 	ui_set_element_visual(ui_vis_separator,            theme_mesh_separator,    theme_mat_transparent);
 	ui_set_element_visual(ui_vis_aura,                 theme_mesh_aura,         theme_mat_aura);
 	ui_set_element_visual(ui_vis_caret,                theme_mesh_caret,        theme_mat_caret);

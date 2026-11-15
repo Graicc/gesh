@@ -1,15 +1,20 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+	<Import Project="..\..\version.props" />
 	<PropertyGroup>
 		<TargetFramework>net10.0-android</TargetFramework>
 		<RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
 		<SupportedOSPlatformVersion>29</SupportedOSPlatformVersion>
 		<OutputType>Exe</OutputType>
 		<TargetType>Exe</TargetType> <!--To enable top-level entry points on Android.-->
-		<ApplicationId>com.companyname.gesh</ApplicationId>
-		<ApplicationVersion>1</ApplicationVersion>
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationId>com.graic.gesh</ApplicationId>
+		<ApplicationVersion>3</ApplicationVersion>
+		<ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
 		<RootNamespace>gesh</RootNamespace>
 		<ReadOnlyProject>true</ReadOnlyProject>
+		<!--An .apk, not an .aab: Release otherwise builds an app bundle, and
+		    deploying a bundle fully uninstalls the app first, which deletes
+		    the saves in its external files folder.-->
+		<AndroidPackageFormat>apk</AndroidPackageFormat>
 
 		<SKOpenXRLoader>Standard</SKOpenXRLoader>
 		<SKAssetFolder>..\..\Assets</SKAssetFolder>
@@ -20,8 +25,17 @@
 		<NoWarn>XA4211;XA1006;XA4301</NoWarn>
 	</PropertyGroup>
 
+	<!--Build StereoKit (C# and native StereoKitC) from ../../stereokit instead
+	    of using the NuGet package. Requires the NDK env var and ninja, see
+	    stereokit/BUILDING.md.-->
+	<PropertyGroup>
+		<SKSDKBuildMode>ARM64</SKSDKBuildMode>
+		<SKBuildShaderCode>false</SKBuildShaderCode>
+	</PropertyGroup>
+	<Import Project="..\..\stereokit\StereoKit\BuildStereoKitSDK.targets" />
+
 	<ItemGroup>
-		<PackageReference Include="StereoKit" Version="0.3.11" />
+		<PackageReference Include="SharpGLTF.Toolkit" Version="1.0.7" />
 	</ItemGroup>
 
 	<!--Point Android to the right folders, otherwise these default to the root
@@ -33,7 +47,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<Compile Include="..\..\**\*.cs" Exclude="..\..\obj\**;..\..\bin\**;..\..\Projects\**" />
+		<Compile Include="..\..\**\*.cs" Exclude="..\..\obj\**;..\..\bin\**;..\..\Projects\**;..\..\stereokit\**" />
 
 		<!--Don't compile .NET Core code in this project.-->
 		<Compile Remove="..\..\**\*.Net.cs" />

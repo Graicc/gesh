@@ -188,7 +188,17 @@ void virtualkeyboard_open(bool32_t open, text_context_ type) {
 
 	// Position the keyboard in front of the user if this just opened
 	if (open && !local.open) {
-		local.pose = matrix_transform_pose(matrix_invert(render_get_cam_root()), ui_popup_pose({0,0,0}));
+		// gesh: low and close, where hands type comfortably, rather than
+		// ui_popup_pose's spot just under the text field, which for a field
+		// near eye level put the keyboard far too high. The pose is the
+		// keyboard's top center, tilted to face up toward the eyes.
+		pose_t head     = input_head();
+		vec3   head_fwd = head.orientation * vec3_forward;
+		vec3   flat_fwd = vec3_normalize(vec3{ head_fwd.x, 0, head_fwd.z });
+		pose_t at;
+		at.position    = head.position + flat_fwd * 0.4f + vec3{ 0, -0.3f, 0 };
+		at.orientation = quat_from_angles(35, 0, 0) * quat_lookat(vec3_zero, -flat_fwd);
+		local.pose = matrix_transform_pose(matrix_invert(render_get_cam_root()), at);
 	}
 
 	// Reset the keyboard to its default state

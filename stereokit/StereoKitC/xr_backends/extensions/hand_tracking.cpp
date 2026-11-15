@@ -32,6 +32,11 @@ typedef struct xr_hand_tracking_state_t {
 	float            hand_joint_scale;
 	XrHandTrackerEXT hand_tracker[2];
 	sk::hand_joint_t hand_joints [2][26];
+	// gesh: this frame's joint poses in world space as OpenXR gave them,
+	// before StereoKit's fingertip fix, for skinning hand meshes. See
+	// backend_openxr_get_hand_joints.
+	sk::pose_t       mesh_joints [2][26];
+	bool             mesh_valid  [2];
 } xr_hand_tracking_state_t;
 static xr_hand_tracking_state_t local = { };
 
@@ -78,6 +83,14 @@ bool xr_ext_hand_tracking_available() {
 
 XrHandTrackerEXT xr_ext_hand_tracking_get_tracker(handed_ hand) {
 	return local.hand_tracker[hand];
+}
+
+///////////////////////////////////////////
+
+bool xr_ext_hand_tracking_get_mesh_joints(handed_ hand, pose_t* out_joints, int32_t joint_count) {
+	if (joint_count != 26 || !local.mesh_valid[hand]) return false;
+	memcpy(out_joints, local.mesh_joints[hand], sizeof(pose_t) * 26);
+	return true;
 }
 
 ///////////////////////////////////////////
@@ -282,6 +295,7 @@ void xr_ext_hand_tracking_update_joints() {
 
 		// No valid joints? Hand many not be visible, we can skip getting 
 		// pose information.
+		local.mesh_valid[h] = valid_joints;
 		if (!valid_joints) {
 			continue;
 		}
@@ -295,6 +309,7 @@ void xr_ext_hand_tracking_update_joints() {
 			local.hand_joints[h][j].radius      = locations.jointLocations[j].radius * local.hand_joint_scale;
 			local.hand_joints[h][j].position    = matrix_transform_pt(root, local.hand_joints[h][j].position);
 			local.hand_joints[h][j].orientation = local.hand_joints[h][j].orientation * root_q;
+			local.mesh_joints[h][j] = { local.hand_joints[h][j].position, local.hand_joints[h][j].orientation };
 		}
 
 		// Some runtimes provide the finger tip at the very tip of the finger,

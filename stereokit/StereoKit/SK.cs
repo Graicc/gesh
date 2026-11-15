@@ -147,6 +147,17 @@ namespace StereoKit
 		public static void SetWindow(IntPtr window)
 			=> NativeAPI.sk_set_window_xam(window);
 
+		/// <summary>Android only. Like SetWindow, but takes an
+		/// ANativeWindow* that's already been made from the Surface. Making it
+		/// right away, on the thread that got the Surface, avoids StereoKit
+		/// converting it later on its own thread, after the Surface may have
+		/// been released.</summary>
+		/// <param name="nativeWindow">An ANativeWindow*, or IntPtr.Zero when
+		/// the surface is destroyed. StereoKit takes its own reference, so
+		/// the caller can release theirs right after.</param>
+		public static void SetNativeWindow(IntPtr nativeWindow)
+			=> NativeAPI.sk_set_window(nativeWindow);
+
 		private static bool InitializeCall(SKSettings settings)
 		{
 			// Prep console for colored debug logs

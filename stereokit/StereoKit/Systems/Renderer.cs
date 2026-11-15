@@ -251,6 +251,15 @@ namespace StereoKit
 		/// <param name="material">A Material to apply to the Mesh.</param>
 		/// <param name="transform">A Matrix that will transform the mesh
 		/// from Model Space into the current Hierarchy Space.</param>
+		/// <summary>gesh: cuts meshes added until PopClip off at two world
+		/// space planes (xyz normal, w offset; kept where
+		/// dot(normal, p) + w >= 0). Only the UI, font and unlit shaders
+		/// clip, and unlit_clip, which sprites use. Text is batched per style, so clip it with a text style
+		/// whose material has clip_top and clip_bottom set. Doesn't nest.</summary>
+		public static void PushClip(Vec4 top, Vec4 bottom) => NativeAPI.render_push_clip(top, bottom);
+		/// <summary>gesh: ends the clip from PushClip.</summary>
+		public static void PopClip() => NativeAPI.render_pop_clip();
+
 		public static void Add(Mesh mesh, Material material, Matrix transform)
 			=> NativeAPI.render_add_mesh(mesh._inst, material._inst, transform, Color.White, RenderLayer.Layer0);
 		/// <summary>Adds a mesh to the render queue for this frame! If the

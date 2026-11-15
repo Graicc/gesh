@@ -30,6 +30,7 @@
 #include "extensions/vulkan_enable.h"
 #include "extensions/android_thread.h"
 #include "extensions/loader_init.h"
+#include "extensions/hand_tracking.h"
 #include "ska_input.h"
 
 #include <openxr/openxr.h>
@@ -917,6 +918,22 @@ openxr_handle_t backend_openxr_get_session() {
 	if (backend_xr_get_type() != backend_xr_type_openxr) 
 		log_err("backend_openxr_ functions only work when OpenXR is the backend!");
 	return (openxr_handle_t)xr_session;
+}
+
+///////////////////////////////////////////
+
+openxr_handle_t backend_openxr_get_hand_tracker(handed_ hand) {
+	if (backend_xr_get_type() != backend_xr_type_openxr) 
+		log_err("backend_openxr_ functions only work when OpenXR is the backend!");
+	if (hand != handed_left && hand != handed_right) return 0;
+	return (openxr_handle_t)xr_ext_hand_tracking_get_tracker(hand);
+}
+
+///////////////////////////////////////////
+
+bool32_t backend_openxr_get_hand_joints(handed_ hand, pose_t* out_joints, int32_t joint_count) {
+	if (hand != handed_left && hand != handed_right) return false;
+	return xr_ext_hand_tracking_get_mesh_joints(hand, out_joints, joint_count);
 }
 
 ///////////////////////////////////////////

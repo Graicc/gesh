@@ -27,6 +27,10 @@ namespace sk {
 
 // These are variables that are set outside of the normal initialization cycle,
 // such as window change events from the main activity.
+//
+// Window references: next_window and window each own one reference
+// (ANativeWindow_acquire) while they hold a window, released when it's
+// replaced or on shutdown. Callers keep and release their own references.
 struct platform_android_persistent_state_t {
 	ANativeWindow *next_window;
 	jobject        next_window_xam;
@@ -47,7 +51,8 @@ void android_process_pending_window() {
 
 	ANativeWindow *prev_window = local.window;
 
-	// Xamarin windows arrive as a jobject Surface that needs JNI conversion
+	// Xamarin windows arrive as a jobject Surface that needs JNI conversion.
+	// ANativeWindow_fromSurface returns an owned reference.
 	if (local_persist.next_window_xam != nullptr) {
 		JNIEnv *env = (JNIEnv*)ska_android_get_jni_env();
 		if (env)
@@ -64,6 +69,10 @@ void android_process_pending_window() {
 		ska_android_on_window_destroyed();
 	if (local.window && local.window != prev_window)
 		ska_android_on_window_created(local.window);
+
+	// sk_app has switched off the previous window, drop its reference.
+	if (prev_window)
+		ANativeWindow_release(prev_window);
 }
 
 ///////////////////////////////////////////
@@ -91,6 +100,10 @@ bool platform_impl_init() {
 ///////////////////////////////////////////
 
 void platform_impl_shutdown() {
+	if (local.window) ANativeWindow_release(local.window);
+	local.window = nullptr;
+	if (local_persist.next_window) ANativeWindow_release(local_persist.next_window);
+	local_persist.next_window = nullptr;
 }
 
 ///////////////////////////////////////////
@@ -102,6 +115,10 @@ void platform_impl_step() {
 ///////////////////////////////////////////
 
 void android_set_window(void *window) {
+	// Take our own reference, so the caller can release theirs. A window
+	// that was set but never picked up is replaced, so release it.
+	if (window) ANativeWindow_acquire((ANativeWindow*)window);
+	if (local_persist.next_window) ANativeWindow_release(local_persist.next_window);
 	local_persist.next_window    = (ANativeWindow*)window;
 	local_persist.next_win_ready = true;
 }

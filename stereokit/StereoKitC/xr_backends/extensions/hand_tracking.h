@@ -15,5 +15,6 @@ namespace sk {
 void             xr_ext_hand_tracking_register   (void);
 bool             xr_ext_hand_tracking_available  (void);
 XrHandTrackerEXT xr_ext_hand_tracking_get_tracker(handed_ hand);
+bool             xr_ext_hand_tracking_get_mesh_joints(handed_ hand, pose_t* out_joints, int32_t joint_count);
 
 }

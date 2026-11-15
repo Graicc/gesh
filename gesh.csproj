@@ -1,9 +1,17 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+	<Import Project="version.props" />
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<OutputType>Exe</OutputType>
 
 		<ApplicationIcon>Platforms\Net\App.ico</ApplicationIcon>
+
+		<SKAssetFolder>Assets</SKAssetFolder>
+		<SKAssetDestination>Assets</SKAssetDestination>
+		<!--Copy everything in Assets (icons), not just the compiled shaders.-->
+		<SKCopyAssets>true</SKCopyAssets>
+		<!--Don't turn the vendored StereoKit's .hlsl files into C# classes.-->
+		<SKBuildShaderCode>false</SKBuildShaderCode>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -17,9 +25,19 @@
 		<Compile Remove="Projects\**" />
 		<EmbeddedResource Remove="Projects\**" />
 		<None Remove="Projects\**" />
+
+		<!--StereoKit source lives in this repo as a git subtree, and is pulled
+		    in through BuildStereoKitSDK.targets below.-->
+		<Compile Remove="stereokit\**" />
+		<EmbeddedResource Remove="stereokit\**" />
+		<None Remove="stereokit\**" />
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="StereoKit" Version="0.3.11" />
+	  <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.7" />
 	</ItemGroup>
+
+	<!--Build StereoKit (C# and native StereoKitC) from ./stereokit instead of
+	    using the NuGet package.-->
+	<Import Project="stereokit\StereoKit\BuildStereoKitSDK.targets" />
 </Project>

@@ -51,6 +51,17 @@ namespace StereoKit
 			/// be started quite so early.</summary>
 			public static ulong Session => NativeAPI.backend_openxr_get_session();
 
+			/// <summary>gesh: StereoKit's own XR_EXT_hand_tracking tracker
+			/// for a hand (XrHandTrackerEXT), 0 if it has none. Runtimes like
+			/// the Quest's allow one tracker per hand, so hand extensions
+			/// should use this one rather than creating their own.</summary>
+			public static ulong HandTracker(Handed hand) => NativeAPI.backend_openxr_get_hand_tracker(hand);
+
+			/// <summary>gesh: this frame's 26 XR_EXT_hand_tracking joint
+			/// poses for a hand, world space, OpenXR's joint order, as
+			/// StereoKit located them. False if the hand isn't tracked.</summary>
+			public static bool HandJoints(Handed hand, Pose[] joints) => NativeAPI.backend_openxr_get_hand_joints(hand, joints, joints.Length) > 0;
+
 			/// <summary>Type: XrSystemId. This is the id of the device
 			/// StereoKit is currently using! This is the result of calling
 			/// `xrGetSystem` with `XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY`.

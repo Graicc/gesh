@@ -485,3 +485,9 @@ $RECYCLE.BIN/
 .skshaders/
 
 .vscode
+# Saves pulled off the headset with `just pull`
+saves/
+dist/
+dist-store/
+*.keystore
+*.jks

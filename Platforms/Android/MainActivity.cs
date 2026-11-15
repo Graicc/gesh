@@ -12,7 +12,13 @@ using System.Threading;
 
 namespace gesh;
 
-[Activity(Label = "@string/app_name", MainLauncher = true, Exported = true, LaunchMode = LaunchMode.SingleTask)]
+// Every configuration change is handled in place: Android would otherwise
+// destroy and recreate the activity (a keyboard connecting, say), and
+// OnDestroy quits StereoKit, which the new activity can't start again.
+// Landscape and focus aware are store requirements, see AndroidManifest.xml.
+[Activity(Label = "@string/app_name", MainLauncher = true, Exported = true, LaunchMode = LaunchMode.SingleTask, ScreenOrientation = ScreenOrientation.Landscape,
+	ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize | ConfigChanges.SmallestScreenSize | ConfigChanges.ScreenLayout | ConfigChanges.Keyboard | ConfigChanges.KeyboardHidden | ConfigChanges.Navigation | ConfigChanges.Touchscreen | ConfigChanges.UiMode | ConfigChanges.Density | ConfigChanges.FontScale | ConfigChanges.Locale | ConfigChanges.LayoutDirection | ConfigChanges.Mcc | ConfigChanges.Mnc)]
+[MetaData("com.oculus.vr.focusaware", Value = "true")]
 [IntentFilter(new[]{Intent.ActionMain}, Categories = new[]{"org.khronos.openxr.intent.category.IMMERSIVE_HMD", "com.oculus.intent.category.VR", Intent.CategoryLauncher})]
 public class MainActivity : Activity, ISurfaceHolderCallback2
 {
@@ -77,9 +83,27 @@ public class MainActivity : Activity, ISurfaceHolderCallback2
 		Process.KillProcess(Process.MyPid());
 	}
 
-	// Events related to surface state changes
-	public void SurfaceChanged     (ISurfaceHolder holder, [GeneratedEnum] Format format, int width, int height) => SK.SetWindow(holder.Surface.Handle);
-	public void SurfaceCreated     (ISurfaceHolder holder) => SK.SetWindow(holder.Surface.Handle);
-	public void SurfaceDestroyed   (ISurfaceHolder holder) => SK.SetWindow(IntPtr.Zero);
+	// Events related to surface state changes. The Surface is turned into an
+	// ANativeWindow here, on the UI thread, while it's sure to be alive.
+	// Passing the Surface itself let StereoKit convert it later on its own
+	// thread, which crashed when the Surface had been released by then (seen
+	// when relaunching quickly).
+	public void SurfaceChanged     (ISurfaceHolder holder, [GeneratedEnum] Format format, int width, int height) => SetWindow(holder);
+	public void SurfaceCreated     (ISurfaceHolder holder) => SetWindow(holder);
+	public void SurfaceDestroyed   (ISurfaceHolder holder) => SK.SetNativeWindow(IntPtr.Zero);
+
+	/// <summary>ANativeWindow_fromSurface gives us a reference. StereoKit
+	/// takes its own when handed the window, so ours is released right away.</summary>
+	static void SetWindow(ISurfaceHolder holder)
+	{
+		IntPtr window = ANativeWindow_fromSurface(JNIEnv.Handle, holder.Surface.Handle);
+		SK.SetNativeWindow(window);
+		if (window != IntPtr.Zero) ANativeWindow_release(window);
+	}
+
+	[System.Runtime.InteropServices.DllImport("android")]
+	static extern IntPtr ANativeWindow_fromSurface(IntPtr env, IntPtr surface);
+	[System.Runtime.InteropServices.DllImport("android")]
+	static extern void ANativeWindow_release(IntPtr window);
 	public void SurfaceRedrawNeeded(ISurfaceHolder holder) { }
 }

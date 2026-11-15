@@ -46,6 +46,20 @@ openxr_handle_t backend_openxr_get_session() {
 
 ///////////////////////////////////////////
 
+openxr_handle_t backend_openxr_get_hand_tracker(handed_) {
+	log_err(backend_err_wrong_backend);
+	return 0;
+}
+
+///////////////////////////////////////////
+
+bool32_t backend_openxr_get_hand_joints(handed_, pose_t*, int32_t) {
+	log_err(backend_err_wrong_backend);
+	return false;
+}
+
+///////////////////////////////////////////
+
 openxr_handle_t backend_openxr_get_system_id() {
 	log_err(backend_err_wrong_backend);
 	return 0;

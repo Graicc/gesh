@@ -2619,6 +2619,13 @@ SK_API SK_DEPRECATED void    render_global_texture     (int32_t register_slot, t
 SK_API SK_DEPRECATED tex_t   render_get_global_texture (int32_t register_slot);
 SK_API SK_DEPRECATED void    render_global_buffer      (int32_t register_slot, material_buffer_t buffer);
 SK_API void                  render_add_mesh       (mesh_t  mesh,  material_t material,          const sk_ref(matrix) transform, color128 color_linear sk_default({1,1,1,1}), render_layer_ layer sk_default(render_layer_0));
+// gesh: cuts meshes added until render_pop_clip off at two world space
+// planes (xyz normal, w offset; kept where dot(normal, p) + w >= 0). Only
+// materials whose shader has clip_top and clip_bottom params are cut: the
+// UI, font, unlit and unlit_clip (sprite) shaders. Text is batched, so clip it with a text style
+// whose material has these params set instead. Doesn't nest.
+SK_API void                  render_push_clip      (vec4 top, vec4 bottom);
+SK_API void                  render_pop_clip       (void);
 SK_API void                  render_add_model      (model_t model,                               const sk_ref(matrix) transform, color128 color_linear sk_default({1,1,1,1}), render_layer_ layer sk_default(render_layer_0));
 SK_API void                  render_add_model_mat  (model_t model, material_t material_override, const sk_ref(matrix) transform, color128 color_linear sk_default({1,1,1,1}), render_layer_ layer sk_default(render_layer_0));
 SK_API void                  render_blit           (tex_t to_rendertarget, material_t material);
@@ -4507,6 +4514,14 @@ typedef struct backend_vulkan_request_t {
 SK_API backend_xr_type_  backend_xr_get_type                (void);
 SK_API openxr_handle_t   backend_openxr_get_instance        (void);
 SK_API openxr_handle_t   backend_openxr_get_session         (void);
+// gesh: StereoKit's own XR_EXT_hand_tracking tracker for a hand, 0 if it
+// has none. Runtimes like the Quest's allow only one tracker per hand, so
+// apps using hand extensions (XR_FB_hand_tracking_mesh) share this one.
+SK_API openxr_handle_t   backend_openxr_get_hand_tracker    (handed_ hand);
+// gesh: this frame's 26 XR_EXT_hand_tracking joint poses for a hand, in
+// world space and OpenXR's joint order, as StereoKit located them. False if
+// the hand isn't tracked this frame. For skinning hand meshes.
+SK_API bool32_t          backend_openxr_get_hand_joints     (handed_ hand, pose_t* out_joints, int32_t joint_count);
 SK_API openxr_handle_t   backend_openxr_get_system_id       (void);
 SK_API openxr_handle_t   backend_openxr_get_space           (void);
 SK_API openxr_handle_t   backend_openxr_get_head_space      (void);

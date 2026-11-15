@@ -678,6 +678,8 @@ namespace StereoKit
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern IntPtr       render_get_global_texture(int register_slot);
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_global_buffer(int register_slot, IntPtr buffer);
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_add_mesh(IntPtr mesh, IntPtr material, in Matrix transform, Color color_linear, RenderLayer layer);
+		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_push_clip(Vec4 top, Vec4 bottom);
+		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_pop_clip();
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_add_model(IntPtr model, in Matrix transform, Color color_linear, RenderLayer layer);
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_add_model_mat(IntPtr model, IntPtr material_override, in Matrix transform, Color color_linear, RenderLayer layer);
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern void         render_blit(IntPtr to_rendertarget, IntPtr material);
@@ -1082,6 +1084,8 @@ namespace StereoKit
 
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_instance();
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_session();
+		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_hand_tracker(Handed hand);
+		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern int          backend_openxr_get_hand_joints(Handed hand, [Out] Pose[] outJoints, int jointCount);
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_system_id();
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_space();
 		[DllImport(dll, CharSet = cSet, CallingConvention = call)] public static extern ulong        backend_openxr_get_head_space();

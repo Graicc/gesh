@@ -1,0 +1,429 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>gesh UI mockups</title>
+<style>
+/* Flat surfaces: 1 px = 0.25 mm (4 px per mm). Palm panel 0.19 m = 760 px wide.
+   Colors sampled from the current build. Scenes are perspective sketches. */
+:root {
+	--panel: #4e5458; --button: #7c7f81; --button-on: #9a9ea0; --accent: #5893c7; --danger: #e65050;
+	--input: #3b4044; --text: #fff; --muted: #c9ccce; --bg: #a2a29f;
+	--margin: 32px; --gutter: 20px; --line: 78px; --btn: 128px; --tab: 123px; --round: 20px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); font-family: "Segoe UI", "Aileron", system-ui, sans-serif; color: var(--text); font-size: 34px; }
+.frame { position: relative; overflow: hidden; }
+.caption { position: absolute; left: 24px; bottom: 10px; font-size: 22px; color: #3a3a38; }
+
+/* palm menu */
+.menu { position: relative; width: 760px; }
+.panel { width: 760px; background: var(--panel); border-radius: 22px; padding: var(--margin); display: flex; flex-direction: column; gap: var(--gutter); overflow: hidden; }
+.strip { margin-top: 32px; width: 760px; height: 187px; background: var(--panel); border-radius: 22px; padding: var(--margin); display: flex; gap: var(--gutter); }
+.strip .sep { width: 4px; height: 123px; border-radius: 2px; background: #6a7074; margin: 0 8px; }
+.close { position: absolute; right: -56px; top: -56px; width: 112px; height: 112px; border-radius: 50%; background: var(--button); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 10px rgba(0,0,0,.25); }
+.close svg { width: 60%; height: 60%; }
+.row { display: flex; gap: var(--gutter); align-items: center; }
+.btn { background: var(--button); border-radius: var(--round); display: flex; align-items: center; justify-content: center; gap: 16px; height: var(--btn); padding: 0 var(--padding, 24px); white-space: nowrap; box-shadow: 0 5px 8px rgba(0,0,0,.22); }
+.btn.sq { width: var(--btn); padding: 0; }
+.btn.tab { width: var(--tab); height: var(--tab); padding: 0; }
+.btn.on { background: var(--button-on); }
+.btn.accent { background: var(--accent); }
+.btn.danger { background: var(--danger); }
+.btn.flat { box-shadow: none; }
+.btn.disabled { opacity: .45; }
+.btn.wide { justify-content: flex-start; flex: 1; }
+.col > .btn.wide { flex: none; }
+.btn svg { height: 62%; width: 62%; }
+.btn.icon-text svg { height: 54%; width: 54px; }
+.fill { flex: 1; }
+.label { height: var(--line); display: flex; align-items: center; white-space: nowrap; overflow: hidden; }
+.label.fixed { width: 352px; flex: none; }
+.slider { flex: 1; height: var(--line); display: flex; align-items: center; position: relative; }
+.slider .track { position: absolute; left: 0; right: 0; height: 24px; border-radius: 12px; background: var(--button); }
+.slider .fillbar { position: absolute; left: 0; height: 24px; border-radius: 12px; background: var(--accent); }
+.slider .thumb { position: absolute; width: 52px; height: 52px; border-radius: 14px; background: var(--accent); transform: translateX(-50%); box-shadow: 0 4px 6px rgba(0,0,0,.25); border: 4px solid #7fb2dc; }
+.slider.disabled { opacity: .4; }
+.input { flex: 1; height: var(--btn); background: var(--input); border-radius: var(--round); border: 4px solid var(--button); display: flex; align-items: center; padding: 0 24px; white-space: nowrap; overflow: hidden; }
+.status { height: var(--line); display: flex; align-items: center; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.status.warn { color: #ffb3b3; }
+.hsep { height: 6px; border-radius: 3px; background: var(--accent); opacity: .7; margin: 10px 0; }
+.small { font-size: 26px; line-height: 1.35; }
+.muted { color: var(--muted); }
+.swatch { border-radius: 14px; width: 99px; height: 99px; position: relative; box-shadow: 0 5px 8px rgba(0,0,0,.22); }
+.swatch .ring { position: absolute; left: 25%; top: 25%; width: 50%; height: 50%; border-radius: 50%; border: 6px solid; }
+.legend { display: flex; align-items: center; gap: var(--gutter); height: 80px; }
+.legend svg { width: 80px; height: 80px; flex: none; }
+
+/* home */
+.home { position: relative; width: 1840px; height: 1280px; background: var(--panel); border-radius: 26px; padding: var(--margin); display: flex; gap: 40px; }
+.home .left { width: 480px; display: flex; flex-direction: column; gap: var(--gutter); }
+.home .right { flex: 1; display: flex; gap: var(--gutter); }
+.card { position: relative; width: 372px; height: 480px; border-radius: 20px; background: var(--button); box-shadow: 0 5px 8px rgba(0,0,0,.22); overflow: visible; }
+.card .thumb { width: 372px; height: 372px; border-radius: 20px 20px 0 0; }
+.card .name { height: 108px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.card .name .age { font-size: 26px; color: var(--muted); }
+.card.open { outline: 8px solid var(--accent); }
+.card .trash { position: absolute; right: -16px; top: -16px; width: 112px; height: 112px; border-radius: 50%; background: var(--button); display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 8px rgba(0,0,0,.3); }
+.card .trash svg { width: 60%; height: 60%; }
+.card .trash.danger { background: var(--danger); }
+.card.new { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 20px; background: #686d71; border: 6px dashed #9a9ea0; }
+.card.new svg { width: 140px; height: 140px; }
+.grid { display: grid; grid-template-columns: repeat(3, 372px); grid-auto-rows: 480px; gap: 60px 20px; align-content: start; }
+.vbar { width: 80px; position: relative; }
+.vbar .track { position: absolute; left: 28px; top: 0; bottom: 0; width: 24px; border-radius: 12px; background: var(--button); }
+.vbar .thumb { position: absolute; left: 14px; top: 0; width: 52px; height: 52px; border-radius: 14px; background: var(--accent); border: 4px solid #7fb2dc; }
+.bigthumb { width: 480px; height: 480px; border-radius: 20px; }
+
+/* hint card */
+.hint { display: inline-flex; align-items: center; gap: 24px; height: 160px; padding: 0 40px 0 28px; background: rgba(40,44,48,.92); border-radius: 28px; color: #fff; white-space: nowrap; position: relative; box-shadow: 0 8px 16px rgba(0,0,0,.3); }
+.hint svg { width: 100px; height: 100px; }
+.hint::after { content: ""; position: absolute; left: 80px; bottom: -28px; border: 28px solid transparent; border-top-color: rgba(40,44,48,.92); border-bottom: 0; }
+
+/* scenes */
+.scene { position: relative; width: 1600px; height: 1000px; overflow: hidden; background: linear-gradient(#b9bcc0 0%, #a9abad 55%, #8f928f 56%, #7d807c 100%); }
+.scene .obj { position: absolute; transform-origin: top left; }
+.scene .ui3d { position: absolute; transform-style: preserve-3d; }
+.scene .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 28px; background: rgba(30,32,34,.75); color: #fff; font-size: 30px; }
+.board { background: #d9d8d4; padding: 30px; }
+.board h1 { font-size: 40px; margin: 0 0 18px 10px; color: #2d2f31; }
+.board .rowf { display: flex; gap: 24px; margin-bottom: 30px; }
+.board .f { width: 500px; }
+.board .f .v { width: 500px; height: 312px; overflow: hidden; border-radius: 10px; position: relative; background: #a9abad; }
+.board .f .v .scene { transform: scale(.3125); transform-origin: top left; }
+.board .f .t { font-size: 24px; color: #2d2f31; margin-top: 10px; line-height: 1.3; }
+.board .f .n { display: inline-block; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: #fff; text-align: center; line-height: 36px; font-size: 22px; margin-right: 10px; }
+</style>
+</head>
+<body>
+<script>
+// ======================= icons (SDF primitives as SVG) =======================
+let maskId = 0;
+const S = {
+	cap: (a, b, r) => ({ t: 'cap', a, b, r }),
+	circ: (c, r) => ({ t: 'circ', c, r }),
+	box: (c, h, ang = 0, round = 0) => ({ t: 'box', c, h, ang, round }),
+	poly: (pts) => ({ t: 'poly', pts }),
+	ring: (c, r, w) => ({ t: 'ring', c, r, w }),
+	rbox: (c, h, round, w) => ({ t: 'rbox', c, h, round, w }),
+};
+const sub = (s) => Object.assign(s, { sub: true });
+function shapeSvg(s, fill) {
+	switch (s.t) {
+		case 'cap': return `<line x1="${s.a[0]}" y1="${s.a[1]}" x2="${s.b[0]}" y2="${s.b[1]}" stroke="${fill}" stroke-width="${2 * s.r}" stroke-linecap="round"/>`;
+		case 'circ': return `<circle cx="${s.c[0]}" cy="${s.c[1]}" r="${s.r}" fill="${fill}"/>`;
+		case 'box': return `<rect x="${s.c[0] - s.h[0]}" y="${s.c[1] - s.h[1]}" width="${2 * s.h[0]}" height="${2 * s.h[1]}" rx="${s.round}" fill="${fill}" transform="rotate(${s.ang * 180 / Math.PI} ${s.c[0]} ${s.c[1]})"/>`;
+		case 'poly': return `<polygon points="${s.pts.map(p => p.join(',')).join(' ')}" fill="${fill}"/>`;
+		case 'ring': return `<circle cx="${s.c[0]}" cy="${s.c[1]}" r="${s.r}" fill="none" stroke="${fill}" stroke-width="${2 * s.w}"/>`;
+		case 'rbox': return `<rect x="${s.c[0] - s.h[0]}" y="${s.c[1] - s.h[1]}" width="${2 * s.h[0]}" height="${2 * s.h[1]}" rx="${s.round}" fill="none" stroke="${fill}" stroke-width="${2 * s.w}"/>`;
+	}
+}
+function icon(name, color = '#fff') {
+	const ops = ICONS[name]; if (!ops) throw new Error('no icon ' + name);
+	const id = 'm' + (maskId++);
+	return `<svg viewBox="0 0 1 1"><mask id="${id}">${ops.filter(o => !o.sub).map(o => shapeSvg(o, 'white')).join('')}${ops.filter(o => o.sub).map(o => shapeSvg(o, 'black')).join('')}</mask><rect width="1" height="1" fill="${color}" mask="url(#${id})"/></svg>`;
+}
+const gear = [S.ring([.5, .5], .27, .085)];
+for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; gear.push(S.box([.5 + .33 * Math.cos(a), .5 + .33 * Math.sin(a)], [.07, .065], a, .02)); }
+const ICONS = {
+	hammer: [S.cap([.28, .84], [.6, .4], .065), S.box([.62, .34], [.26, .1], .63, .03)],
+	brush: [S.cap([.86, .14], [.55, .45], .05), S.box([.5, .5], [.07, .1], .785, .02), S.circ([.36, .64], .14), S.poly([[.24, .56], [.44, .76], [.1, .9]])],
+	drop: [S.circ([.5, .62], .25), S.poly([[.5, .1], [.73, .5], [.27, .5]])],
+	pipette: [S.cap([.2, .8], [.58, .42], .055), S.circ([.72, .28], .14), S.cap([.5, .36], [.64, .5], .06)],
+	save: [S.poly([[.14, .14], [.72, .14], [.86, .28], [.86, .86], [.14, .86]]), sub(S.box([.46, .26], [.17, .08], 0, .01)), sub(S.box([.5, .67], [.24, .13], 0, .02))],
+	plus: [S.cap([.5, .18], [.5, .82], .07), S.cap([.18, .5], [.82, .5], .07)],
+	trash: [S.cap([.18, .25], [.82, .25], .05), S.box([.5, .17], [.1, .05], 0, .02), S.poly([[.26, .34], [.74, .34], [.68, .88], [.32, .88]]), sub(S.cap([.42, .45], [.43, .76], .03)), sub(S.cap([.58, .45], [.57, .76], .03))],
+	info: [S.ring([.5, .5], .36, .055), S.circ([.5, .32], .065), S.cap([.5, .47], [.5, .7], .055)],
+	close: [S.cap([.24, .24], [.76, .76], .07), S.cap([.76, .24], [.24, .76], .07)],
+	home: [S.poly([[.5, .12], [.9, .5], [.1, .5]]), S.box([.5, .66], [.28, .22], 0, .02), sub(S.box([.5, .74], [.08, .14], 0, .01))],
+	folder: [S.box([.5, .58], [.38, .26], 0, .04), S.box([.30, .30], [.17, .06], 0, .03)],
+	gear,
+	select: [S.rbox([.5, .5], [.34, .34], .08, .045), ...[.387, .613].flatMap(x => [sub(S.box([x, .16], [.05, .10])), sub(S.box([x, .84], [.05, .10])), sub(S.box([.16, x], [.10, .05])), sub(S.box([.84, x], [.10, .05]))])],
+	grab: [S.circ([.5, .5], .13), S.ring([.5, .5], .36, .05)],
+	extend: [S.circ([.28, .72], .12), S.cap([.28, .72], [.68, .32], .04), S.cap([.70, .14], [.70, .46], .05), S.cap([.54, .30], [.86, .30], .05)],
+	move: [S.cap([.5, .14], [.5, .86], .05), S.cap([.14, .5], [.86, .5], .05), S.poly([[.5, .06], [.36, .24], [.64, .24]]), S.poly([[.5, .94], [.36, .76], [.64, .76]]), S.poly([[.06, .5], [.24, .36], [.24, .64]]), S.poly([[.94, .5], [.76, .36], [.76, .64]])],
+	// New: Home (gallery of cards), Reset view (crosshair), Hand (show a palm), Pinch (two fingertips).
+	gallery: [S.box([.3, .3], [.15, .15], 0, .03), S.box([.7, .3], [.15, .15], 0, .03), S.box([.3, .7], [.15, .15], 0, .03), S.box([.7, .7], [.15, .15], 0, .03)],
+	resetview: [S.ring([.5, .5], .28, .05), S.circ([.5, .5], .08), S.cap([.5, .08], [.5, .26], .05), S.cap([.5, .74], [.5, .92], .05), S.cap([.08, .5], [.26, .5], .05), S.cap([.74, .5], [.92, .5], .05)],
+	hand: [S.box([.5, .66], [.22, .22], 0, .1), S.cap([.33, .5], [.30, .22], .065), S.cap([.45, .48], [.45, .12], .065), S.cap([.57, .48], [.59, .16], .065), S.cap([.69, .5], [.72, .26], .06), S.cap([.3, .66], [.14, .5], .07)],
+	pinch: [S.cap([.2, .9], [.46, .42], .08), S.cap([.8, .9], [.54, .42], .08), S.circ([.5, .36], .1)],
+	toggleOn: [S.rbox([.5, .5], [.36, .36], .08, .05), S.box([.5, .5], [.19, .19], 0, .03)],
+	toggleOff: [S.rbox([.5, .5], [.36, .36], .08, .05)],
+};
+
+// ======================= widgets =======================
+const PRESETS = ['#ffffff', '#808080', '#141414', '#8c5a32', '#e63c32', '#f59128', '#fad73c', '#5abe50', '#28a096', '#3c78dc', '#7850c8', '#dc5aaa'];
+let BRUSH = '#e63c32';
+function slider(frac, extra = '') { return `<div class="slider ${extra}"><div class="track"></div><div class="fillbar" style="width:${frac * 100}%"></div><div class="thumb" style="left:${frac * 100}%"></div></div>`; }
+function sliderRow(label, frac) { return `<div class="row"><div class="label fixed">${label}</div>${slider(frac)}</div>`; }
+function textBtn(iconName, text, cls = '') { return `<div class="btn icon-text ${cls}">${icon(iconName)}<span>${text}</span></div>`; }
+function toggle(text, on, cls = '') { return `<div class="btn icon-text ${cls}">${icon(on ? 'toggleOn' : 'toggleOff')}<span>${text}</span></div>`; }
+function legend(iconName, text) { return `<div class="legend">${icon(iconName)}<div>${text}</div></div>`; }
+
+// Tool strip: Edit, Select, Brush, Fill | Home.
+const TOOLS = [['edit', 'hammer'], ['select', 'select'], ['brush', 'brush'], ['fill', 'drop']];
+function strip(tool) {
+	return `<div class="strip">${TOOLS.map(([t, i]) => `<div class="btn tab ${t === tool ? 'accent' : ''}">${icon(i)}</div>`).join('')}<div class="sep"></div><div class="btn tab">${icon('gallery')}</div></div>`;
+}
+function editPanel(select, selection = 0) {
+	let h = select ? legend('select', 'Pinch and sweep: select') + legend('grab', 'Start on selected: deselect') : legend('grab', 'Pinch: grab. Drop on a vertex to merge') + legend('extend', 'Middle pinch: pull out a new part');
+	h += legend('move', 'Pinch air: move. Two hands: turn, zoom');
+	h += `<div class="row">${textBtn('resetview', 'Reset view')}<div class="fill"></div>${selection ? `<div class="label">${selection} selected</div>${textBtn('close', 'Clear')}` : ''}</div>`;
+	return `<div class="panel">${h}</div>`;
+}
+function paintPanel(tool, picking = false) {
+	const t = (0.02 - 0.005) / 0.055;
+	const d = Math.round((10 + 22 * t) * 4);
+	let shape;
+	if (picking) shape = `<div style="width:112px;height:112px;border-radius:50%;border:14px solid ${BRUSH}"></div>`;
+	else if (tool === 'brush') shape = `<div style="width:${d}px;height:${d}px;border-radius:50%;background:${BRUSH}"></div>`;
+	else shape = `<div style="width:112px;height:112px;border-radius:14px;background:${BRUSH}"></div>`;
+	const top = `<div class="row"><div style="width:128px;height:128px;display:flex;align-items:center;justify-content:center">${shape}</div>${slider(t, tool === 'brush' && !picking ? '' : 'disabled')}<div class="btn sq ${picking ? 'accent' : ''}">${icon('pipette')}</div></div>`;
+	const hue = 0, sat = 0.9, val = 0.9;
+	const wheel = `<div class="row" style="justify-content:center">
+		<div style="width:400px;height:400px;border-radius:50%;background:radial-gradient(circle, #fff 0%, rgba(255,255,255,0) 70%), conic-gradient(from 90deg, #f00, #f0f, #00f, #0ff, #0f0, #ff0, #f00); position:relative; filter: brightness(${val})">
+			<div style="position:absolute;left:${200 + 200 * sat * Math.cos(hue) - 32}px;top:${200 - 200 * sat * Math.sin(hue) - 32}px;width:64px;height:64px;border-radius:50%;background:${BRUSH};border:8px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.2)"></div>
+		</div>
+		<div style="width:88px;height:400px;position:relative;display:flex;justify-content:center">
+			<div style="width:52px;height:400px;border-radius:6px;background:linear-gradient(${BRUSH}, #000)"></div>
+			<div style="position:absolute;left:12px;top:${400 * (1 - val) - 32}px;width:64px;height:64px;border-radius:50%;background:${BRUSH};border:8px solid #fff"></div>
+		</div></div>`;
+	const presets = [0, 6].map(s => `<div class="row">${PRESETS.slice(s, s + 6).map(c => `<div class="swatch" style="background:${c}">${c === BRUSH ? '<div class="ring" style="border-color:#fff"></div>' : ''}</div>`).join('')}</div>`).join('');
+	return `<div class="panel">${top}${wheel}${presets}</div>`;
+}
+function palmMenu(tool, opts = {}) {
+	const panel = tool === 'edit' ? editPanel(false) : tool === 'select' ? editPanel(true, opts.selection ?? 0) : paintPanel(tool, opts.picking);
+	return `<div class="menu">${panel}${strip(tool)}${opts.placed ? `<div class="close">${icon('close')}</div>` : ''}</div>`;
+}
+
+// Home: current document on the left, saved cards on the right, settings/info pages.
+const thumbs = ['linear-gradient(135deg,#2b2bb8,#d02090)', 'linear-gradient(135deg,#10c0b0,#f0d0b0)', 'linear-gradient(135deg,#4080c0,#f0a0b0)', 'linear-gradient(135deg,#406040,#c0e0a0)', 'linear-gradient(135deg,#806040,#e0c0a0)', 'linear-gradient(135deg,#604080,#c0a0e0)'];
+const fileRows = [['robot head', 'just now'], ['lamp_v2', '3 min ago'], ['chair', '2 h ago'], ['bowl', 'Nov 2'], ['test', 'Oct 30'], ['tree', 'Oct 12']];
+function home(page, o = {}) {
+	const { name = 'robot head', unsaved = true, status = '', warn = false, armed = -1, empty = false, openIndex = 0, placed = true } = o;
+	const left = `<div class="left">
+		<div class="bigthumb" style="background:${openIndex >= 0 ? thumbs[openIndex] : '#3b4044'};display:flex;align-items:center;justify-content:center;color:#9a9ea0">${openIndex >= 0 ? '' : 'not saved yet'}</div>
+		<div class="row"><div class="input">${name}</div><div class="btn sq ${unsaved ? 'accent' : ''}">${icon('save')}</div></div>
+		${textBtn('plus', 'New', 'wide')}
+		<div class="status ${warn ? 'warn' : ''}">${status}</div>
+		<div class="fill"></div>
+		<div class="row">${['gallery', 'gear', 'info'].map(p => `<div class="btn sq ${p === page ? 'accent' : ''}">${icon(p)}</div>`).join('')}</div>
+	</div>`;
+	let right;
+	if (page === 'gallery') {
+		const cards = empty ? '' : fileRows.map(([n, age], i) => `<div class="card ${i === openIndex ? 'open' : ''}"><div class="thumb" style="background:${thumbs[i]}"></div><div class="name"><div>${n}</div><div class="age">${age}</div></div><div class="trash ${i === armed ? 'danger' : ''}">${icon('trash')}</div></div>`).join('');
+		right = `<div class="right"><div class="grid" style="flex:1">${cards}${empty ? `<div class="label muted" style="grid-column:1/4;justify-content:center;height:480px">Nothing saved yet. Save keeps your work here.</div>` : ''}</div>${empty ? '' : `<div class="vbar"><div class="track"></div><div class="thumb"></div></div>`}</div>`;
+	} else if (page === 'gear') {
+		right = `<div class="right col" style="flex-direction:column;gap:20px;align-items:stretch">
+			${toggle('Pinch air to move', true, 'wide')}${sliderRow('Reach', 0.29)}
+			<div class="hsep"></div><div class="label muted">Experimental</div>
+			${toggle('Release from closest', true, 'wide')}${sliderRow('Release +1.0cm', 0.29)}${sliderRow('Pinch 2.5cm', 0.44)}${sliderRow('Palm open 0.75', 0.51)}${sliderRow('Paint px 3.0mm', 0.22)}
+		</div>`;
+	} else {
+		const lic = [['StereoKit, sk_renderer, sk_app', 'MIT'], ['SharpGLTF', 'MIT'], ['meshoptimizer', 'MIT'], ['cgltf', 'MIT'], ['OpenXR loader', 'Apache 2.0 or MIT'], ['stb_image, stb_truetype', 'MIT or public domain'], ['miniaudio', 'MIT-0 or public domain'], ['nanosvg', 'zlib'], ['sokol_time', 'zlib'], ['qoi', 'MIT'], ['zstd', 'BSD'], ['Aileron font', 'CC0'], ['.NET', 'MIT']];
+		right = `<div class="right" style="flex-direction:column;align-items:stretch;gap:20px">
+			<div class="row"><div class="label" style="font-weight:600">gesh</div><div class="fill"></div><div class="label muted">0.1</div></div>
+			<div style="display:grid;grid-template-columns:1fr auto;column-gap:60px;row-gap:16px;font-size:28px">${lic.map(([a, b]) => `<div>${a}</div><div class="muted">${b}</div>`).join('')}</div>
+			<div class="fill"></div><div class="muted" style="font-size:28px">Files are saved in Android/data/…/files, open the Quest in a file browser to copy them.</div>
+		</div>`;
+	}
+	return `<div class="home">${left}${right}${placed ? `<div class="close" style="right:-56px;top:-56px">${icon('close')}</div>` : ''}</div>`;
+}
+
+// Quick palette: a ring of presets around a middle pinch.
+function radial(hover = 4, bg = true, scale = 1) {
+	const R = 240 * scale, D = 88 * scale, cx = 400 * scale, cy = 400 * scale;
+	let h = '';
+	PRESETS.forEach((c, i) => {
+		const a = -Math.PI / 2 + i * Math.PI * 2 / 12;
+		const x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
+		const d = i === hover ? D * 1.25 : D;
+		h += `<div style="position:absolute;left:${x - d / 2}px;top:${y - d / 2}px;width:${d}px;height:${d}px;border-radius:50%;background:${c};box-shadow:0 4px 10px rgba(0,0,0,.35);${i === hover ? 'outline:8px solid #fff;' : ''}"></div>`;
+	});
+	// center: current color dot where the pinch started, and the arrow of the hand's motion
+	const a = -Math.PI / 2 + hover * Math.PI * 2 / 12;
+	h += `<svg style="position:absolute;left:0;top:0" width="${800 * scale}" height="${800 * scale}"><line x1="${cx}" y1="${cy}" x2="${cx + (R - D) * Math.cos(a)}" y2="${cy + (R - D) * Math.sin(a)}" stroke="rgba(255,255,255,.6)" stroke-width="${8 * scale}" stroke-dasharray="${16 * scale} ${14 * scale}" stroke-linecap="round"/></svg>`;
+	h += `<div style="position:absolute;left:${cx - 36 * scale}px;top:${cy - 36 * scale}px;width:${72 * scale}px;height:${72 * scale}px;border-radius:50%;background:${BRUSH};border:${8 * scale}px solid rgba(255,255,255,.8)"></div>`;
+	return `<div style="position:relative;width:${800 * scale}px;height:${800 * scale}px;${bg ? 'background:#8f928f;border-radius:30px;' : ''}">${h}</div>`;
+}
+function hint(iconName, text) { return `<div class="hint">${icon(iconName)}<span>${text}</span></div>`; }
+
+// ======================= scene sketches =======================
+// A hand drawn from capsules, fingers up, palm center at (0,0), about 300 px tall at scale 1.
+function hand(pose, { x, y, scale = 1, rot = 0, flip = false, tint = 'rgba(126,146,166,.92)' } = {}) {
+	const f = (x1, y1, x2, y2, w = 26) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${tint}" stroke-width="${w}" stroke-linecap="round"/>`;
+	let fingers = '';
+	const bases = [[-42, -48], [-14, -54], [14, -54], [42, -48]];
+	const lens = [62, 76, 70, 52];
+	const curled = (i) => f(bases[i][0], bases[i][1], bases[i][0] * 1.05, bases[i][1] - 22, 28) + f(bases[i][0] * 1.05, bases[i][1] - 22, bases[i][0] * 1.1, bases[i][1] + 2, 26);
+	const straight = (i, dx = 0) => f(bases[i][0], bases[i][1], bases[i][0] + dx, bases[i][1] - lens[i]);
+	let thumb = f(-46, 10, -78, -22, 30) + f(-78, -22, -96, -58, 26);
+	if (pose === 'open') { fingers = straight(0, -14) + straight(1, -4) + straight(2, 4) + straight(3, 14); }
+	else if (pose === 'point') { fingers = straight(1, -2) + curled(0) + curled(2) + curled(3); thumb = f(-46, 10, -70, -16, 30) + f(-70, -16, -56, -40, 26); }
+	else if (pose === 'pinch') { // index bends to meet the thumb
+		fingers = f(-14, -54, -34, -104) + f(-34, -104, -72, -98) + curled(0) + curled(2) + curled(3);
+		thumb = f(-46, 10, -78, -30, 30) + f(-78, -30, -80, -84, 26);
+	} else if (pose === 'midpinch') { // middle finger meets the thumb, index stays out
+		fingers = straight(1, -8) + f(14, -54, 0, -104) + f(0, -104, -44, -108) + curled(0) + curled(3);
+		thumb = f(-46, 10, -78, -36, 30) + f(-78, -36, -58, -96, 26);
+	} else if (pose === 'relaxed') { fingers = [0, 1, 2, 3].map(i => f(bases[i][0], bases[i][1], bases[i][0] * 1.1, bases[i][1] - lens[i] * .55)).join(''); }
+	const palm = `<rect x="-58" y="-62" width="116" height="140" rx="40" fill="${tint}"/>`;
+	const wrist = `<path d="M -40 60 L -56 170 L 56 170 L 40 60 Z" fill="${tint}"/>`;
+	const sx = flip ? -scale : scale;
+	return `<svg class="obj" style="left:${x}px;top:${y}px;overflow:visible;transform:rotate(${rot}deg) scale(${sx},${scale})" width="1" height="1"><g>${wrist}${palm}${fingers}${thumb}</g></svg>`;
+}
+// A low-poly blob: faces (some painted), black edges, black vertex dots. Optional highlighted vertex.
+function mesh({ x, y, scale = 1, paint = {}, hover = -1, selected = [], wire = false } = {}) {
+	const V = [[0, -150], [-130, -70], [130, -70], [-150, 70], [150, 70], [0, 160], [-20, -10], [60, 30]];
+	const F = [[0, 1, 6], [0, 6, 2], [1, 3, 6], [3, 5, 6], [5, 7, 6], [6, 7, 2], [2, 7, 4], [7, 5, 4]];
+	const shade = ['#c8ccd0', '#b4b9bf', '#bcc1c6', '#aab0b6', '#b9bec3', '#c3c8cd', '#aeb4ba', '#a2a8ae'];
+	let h = F.map((f, i) => `<polygon points="${f.map(v => V[v].join(',')).join(' ')}" fill="${paint[i] || shade[i]}" stroke="#1a1c1e" stroke-width="5" stroke-linejoin="round"/>`).join('');
+	h += V.map((v, i) => `<circle cx="${v[0]}" cy="${v[1]}" r="${selected.includes(i) ? 14 : 12}" fill="${selected.includes(i) ? '#5893c7' : '#1a1c1e'}"/>`).join('');
+	if (hover >= 0) h += `<circle cx="${V[hover][0]}" cy="${V[hover][1]}" r="28" fill="none" stroke="#5893c7" stroke-width="8"/><circle cx="${V[hover][0]}" cy="${V[hover][1]}" r="40" fill="rgba(88,147,199,.25)"/>`;
+	return `<svg class="obj" style="left:${x}px;top:${y}px;overflow:visible;transform:scale(${scale})" width="1" height="1">${h}</svg>`;
+}
+function triangle({ x, y, scale = 1, hover = -1 }) {
+	const V = [[-160, 120], [160, 120], [0, -140]];
+	let h = `<polygon points="${V.map(v => v.join(',')).join(' ')}" fill="#c3c8cd" stroke="#1a1c1e" stroke-width="5" stroke-linejoin="round"/>` + V.map(v => `<circle cx="${v[0]}" cy="${v[1]}" r="12" fill="#1a1c1e"/>`).join('');
+	if (hover >= 0) h += `<circle cx="${V[hover][0]}" cy="${V[hover][1]}" r="28" fill="none" stroke="#5893c7" stroke-width="8"/>`;
+	return `<svg class="obj" style="left:${x}px;top:${y}px;overflow:visible;transform:scale(${scale})" width="1" height="1">${h}</svg>`;
+}
+function ui3d(html, { x, y, scale, rx = 0, ry = 0, rz = 0 }) {
+	return `<div class="ui3d" style="left:${x}px;top:${y}px;perspective:1800px"><div style="transform-origin:top left;transform:scale(${scale}) rotateY(${ry}deg) rotateX(${rx}deg) rotateZ(${rz}deg)">${html}</div></div>`;
+}
+function fingertip(kind, { x, y, scale = 1 }) {
+	const c = BRUSH;
+	let h = '';
+	if (kind === 'brush') h = `<circle cx="0" cy="0" r="${70 * scale}" fill="${c}" fill-opacity=".5" stroke="${c}" stroke-width="3"/>`;
+	else if (kind === 'fill') h = `<rect x="${-45 * scale}" y="${-45 * scale}" width="${90 * scale}" height="${90 * scale}" rx="8" fill="${c}" fill-opacity=".5" stroke="${c}" stroke-width="3" transform="rotate(15)"/>`;
+	else if (kind === 'pick') h = `<circle cx="0" cy="0" r="${40 * scale}" fill="none" stroke="${c}" stroke-width="${14 * scale}"/>`;
+	return `<svg class="obj" style="left:${x}px;top:${y}px;overflow:visible" width="1" height="1">${h}</svg>`;
+}
+function scene(parts, cap = '') {
+	return `<div class="scene">${parts.join('')}${cap ? `<div class="cap">${cap}</div>` : ''}</div>`;
+}
+
+// Scenes (user's point of view, 1600 x 1000).
+const SCENES = {
+	'scene-palm': () => scene([
+		mesh({ x: 1150, y: 430, scale: .9, paint: { 0: '#e63c32', 1: '#e63c32' } }),
+		hand('open', { x: 400, y: 860, scale: 1.9, rot: 8 }),
+		ui3d(palmMenu('brush'), { x: 250, y: 120, scale: .62, ry: 14, rx: -6 }),
+		hand('point', { x: 561, y: 960, scale: 2.0, rot: -28, flip: true }),
+	], 'Palm up: the tool strip sits at the palm, the current tool\'s options above it. The other index finger pokes. The brush tip shows the color.'),
+	'scene-hover': () => scene([
+		mesh({ x: 800, y: 480, scale: 1.1, hover: 2 }),
+		hand('point', { x: 1130, y: 960, scale: 2.1, rot: -18, flip: true }),
+		hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 }),
+	], 'Edit: the part your fingertip would grab is highlighted before you pinch, so a pinch never surprises you by moving the world.'),
+	'scene-radial': () => scene([
+		mesh({ x: 1100, y: 420, scale: .95, paint: { 3: '#e63c32', 4: '#e63c32', 5: '#3c78dc' } }),
+		hand('midpinch', { x: 640, y: 930, scale: 2.1, rot: -10, flip: true }),
+		`<div class="obj" style="left:465px;top:455px">${radial(2, false, .6)}</div>`,
+		hand('relaxed', { x: 200, y: 1080, scale: 1.8, rot: 14 }),
+	], 'Mid-stroke: middle-finger pinch (unused while painting) opens the preset ring around the hand. Move toward a color, release. Release in the middle: nothing.'),
+	'scene-home': () => scene([
+		mesh({ x: 1330, y: 760, scale: .45, paint: { 0: '#e63c32' } }),
+		ui3d(home('gallery', { status: 'Saved robot head', unsaved: false }), { x: 170, y: 120, scale: .66, ry: 0, rx: -4 }),
+		hand('point', { x: 1050, y: 1050, scale: 2.0, rot: -22, flip: true }),
+		hand('relaxed', { x: 300, y: 1120, scale: 1.8, rot: 10 }),
+	], 'Home: opened from the strip. Your current model on the left (name, save, new), saved models as cards to poke open. Settings and info live here, not on the palm.'),
+	'scene-hint': () => scene([
+		triangle({ x: 800, y: 500, scale: 1.1, hover: 1 }),
+		`<div class="obj" style="left:560px;top:160px;transform:scale(.8)">${hint('grab', 'Pinch a corner and pull')}</div>`,
+		hand('point', { x: 1210, y: 980, scale: 2.0, rot: -16, flip: true }),
+		hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 }),
+	], 'First launch: one triangle and one hint. The hint follows the model and changes as each gesture is learned, then goes away for good.'),
+	'scene-select': () => scene([
+		mesh({ x: 800, y: 480, scale: 1.1, selected: [0, 1, 2, 6], paint: {} }),
+		hand('pinch', { x: 1000, y: 920, scale: 2.0, rot: -26, flip: true }),
+		hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 }),
+	], 'Select: pinch and sweep over parts, they turn blue. With Edit, grabbing any blue part moves them all.'),
+};
+
+// Storyboard: three flows, five frames each, reusing the scenes at small scale.
+function frame(n, sceneHtml, text) { return `<div class="f"><div class="v">${sceneHtml}</div><div class="t"><span class="n">${n}</span>${text}</div></div>`; }
+function storyboard() {
+	const rows = [
+		['First launch', [
+			[scene([triangle({ x: 800, y: 520, scale: 1.1 }), `<div class="obj" style="left:560px;top:170px;transform:scale(.8)">${hint('grab', 'Pinch a corner and pull')}</div>`, hand('relaxed', { x: 1200, y: 1060, scale: 1.9, rot: -10, flip: true }), hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'No saved files, so the app starts with one triangle and a hint card above it.'],
+			[scene([triangle({ x: 800, y: 520, scale: 1.1, hover: 1 }), hand('point', { x: 1180, y: 980, scale: 2.0, rot: -16, flip: true }), hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'Reaching for a corner highlights it. Pinch, pull: the triangle changes shape.'],
+			[scene([mesh({ x: 800, y: 500, scale: .9 }), `<div class="obj" style="left:520px;top:140px;transform:scale(.8)">${hint('extend', 'Middle pinch an edge: pull out a face')}</div>`, hand('pinch', { x: 1120, y: 950, scale: 2.0, rot: -24, flip: true }), hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'The hint moves on to the middle pinch. Pulling an edge out makes a new face.'],
+			[scene([mesh({ x: 1000, y: 470, scale: .9 }), `<div class="obj" style="left:520px;top:140px;transform:scale(.8)">${hint('hand', 'Show a palm for tools and colors')}</div>`, hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 }), hand('relaxed', { x: 1250, y: 1080, scale: 1.9, rot: -10, flip: true })]), 'Last hint: show a palm. After the strip has been seen once, no more hints, ever.'],
+			[scene([mesh({ x: 1150, y: 430, scale: .9 }), hand('open', { x: 400, y: 860, scale: 1.9, rot: 8 }), ui3d(palmMenu('edit'), { x: 250, y: 300, scale: .62, ry: 14, rx: -6 }), hand('point', { x: 470, y: 960, scale: 2.0, rot: -28, flip: true })]), 'The strip and the Edit legend. The legend stays as the reference for the gestures.'],
+		]],
+		['Model, paint, change color', [
+			[scene([mesh({ x: 1150, y: 430, scale: .9 }), hand('open', { x: 400, y: 860, scale: 1.9, rot: 8 }), ui3d(palmMenu('brush'), { x: 250, y: 120, scale: .62, ry: 14, rx: -6 }), hand('point', { x: 561, y: 960, scale: 2.0, rot: -28, flip: true })]), 'Palm up, poke Brush. The paint options open above the strip: size, wheel, presets.'],
+			[scene([mesh({ x: 900, y: 470, scale: 1.0, paint: { 0: '#e63c32', 1: '#e63c32' } }), hand('point', { x: 1130, y: 960, scale: 2.1, rot: -18, flip: true }), fingertip('brush', { x: 1013, y: 690, scale: .6 }), hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'Palm down, paint. The red sphere on the index tip is the brush, same color and size as the swatch.'],
+			[scene([mesh({ x: 1100, y: 420, scale: .95, paint: { 0: '#e63c32', 1: '#e63c32' } }), hand('midpinch', { x: 640, y: 930, scale: 2.1, rot: -10, flip: true }), `<div class="obj" style="left:465px;top:455px">${radial(9, false, .6)}</div>`, hand('relaxed', { x: 200, y: 1080, scale: 1.8, rot: 14 })]), 'Middle pinch: the preset ring. Move the hand toward blue, let go. No palm turn, no menu.'],
+			[scene([mesh({ x: 900, y: 470, scale: 1.0, paint: { 0: '#e63c32', 1: '#e63c32', 5: '#3c78dc', 4: '#3c78dc' } }), hand('point', { x: 1130, y: 960, scale: 2.1, rot: -18, flip: true }), `<svg class="obj" style="left:1013px;top:690px;overflow:visible"><circle r="42" fill="#3c78dc" fill-opacity=".5" stroke="#3c78dc" stroke-width="3"/></svg>`, hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'The tip is blue, painting continues. For a color off the model: palm up, pipette, pinch the model.'],
+			[scene([mesh({ x: 1150, y: 430, scale: .9, paint: { 0: '#e63c32', 5: '#3c78dc' } }), hand('open', { x: 400, y: 860, scale: 1.9, rot: 8 }), ui3d(palmMenu('fill'), { x: 250, y: 120, scale: .62, ry: 14, rx: -6 }), hand('point', { x: 650, y: 960, scale: 2.0, rot: -28, flip: true })]), 'Fill shares the palette; the swatch turns square like the fingertip cube. Size is dimmed, it does not apply.'],
+		]],
+		['Save, then open another model', [
+			[scene([mesh({ x: 1150, y: 430, scale: .9, paint: { 0: '#e63c32' } }), hand('open', { x: 400, y: 860, scale: 1.9, rot: 8 }), ui3d(palmMenu('edit'), { x: 250, y: 300, scale: .62, ry: 14, rx: -6 }), hand('point', { x: 740, y: 960, scale: 2.0, rot: -28, flip: true })]), 'Palm up, poke the Home button at the end of the strip.'],
+			[scene([mesh({ x: 1330, y: 760, scale: .45, paint: { 0: '#e63c32' } }), ui3d(home('gallery', { unsaved: true, openIndex: -1, name: 'gesh_2026-11-09_1432' }), { x: 170, y: 120, scale: .66, rx: -4 }), hand('point', { x: 760, y: 1050, scale: 2.0, rot: -22, flip: true }), hand('relaxed', { x: 300, y: 1120, scale: 1.8, rot: 10 })]), 'Home opens in front of you. Save is blue: there is unsaved work. Tap the name to rename, then Save.'],
+			[scene([mesh({ x: 1330, y: 760, scale: .45, paint: { 0: '#e63c32' } }), ui3d(home('gallery', { unsaved: false, openIndex: 0, status: 'Saved robot head' }), { x: 170, y: 120, scale: .66, rx: -4 }), hand('point', { x: 1200, y: 1050, scale: 2.0, rot: -22, flip: true }), hand('relaxed', { x: 300, y: 1120, scale: 1.8, rot: 10 })]), 'Saved: the card appears, framed as the open one. Now poke another card to open it.'],
+			[scene([mesh({ x: 1330, y: 760, scale: .45, paint: { 0: '#e63c32' } }), ui3d(home('gallery', { unsaved: true, openIndex: 0, status: 'Tap again to open lamp_v2, changes are lost', warn: true }), { x: 170, y: 120, scale: .66, rx: -4 }), hand('point', { x: 1200, y: 1050, scale: 2.0, rot: -22, flip: true }), hand('relaxed', { x: 300, y: 1120, scale: 1.8, rot: 10 })]), 'With unsaved changes the first tap only asks; the status line says what the second tap does.'],
+			[scene([mesh({ x: 800, y: 480, scale: 1.1, paint: { 2: '#28a096', 6: '#28a096' } }), hand('relaxed', { x: 1200, y: 1060, scale: 1.9, rot: -10, flip: true }), hand('relaxed', { x: 330, y: 1080, scale: 1.9, rot: 10 })]), 'Home closes itself, the other model is in front of you at its saved view.'],
+		]],
+	];
+	return `<div class="board" style="width:2680px">${rows.map(([title, frames]) => `<h1>${title}</h1><div class="rowf">${frames.map((f, i) => frame(i + 1, f[0], f[1])).join('')}</div>`).join('')}</div>`;
+}
+
+// Flow diagram.
+function flow() {
+	const box = (x, y, w, h, title, lines = [], fill = '#4e5458') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="18" fill="${fill}"/><text x="${x + 24}" y="${y + 44}" font-size="30" font-weight="600" fill="#fff">${title}</text>${lines.map((l, i) => `<text x="${x + 24}" y="${y + 84 + i * 32}" font-size="24" fill="#d8dbde">${l}</text>`).join('')}`;
+	const arrow = (pts, label = '', lx = 0, ly = 0, both = false) => `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#2d2f31" stroke-width="4" marker-end="url(#ah)" ${both ? 'marker-start="url(#as)"' : ''}/>${label ? `<text x="${lx}" y="${ly}" font-size="22" fill="#2d2f31" text-anchor="middle">${label}</text>` : ''}`;
+	return `<svg width="1700" height="1000" style="background:#d9d8d4;font-family:Segoe UI,sans-serif">
+	<defs><marker id="ah" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#2d2f31"/></marker>
+	<marker id="as" markerWidth="12" markerHeight="12" refX="2" refY="6" orient="auto"><path d="M12,0 L0,6 L12,12 z" fill="#2d2f31"/></marker></defs>
+	<text x="40" y="60" font-size="36" font-weight="600" fill="#2d2f31">gesh flow: surfaces and what moves you between them</text>
+	${box(40, 300, 520, 240, 'Working (always)', ['Fingertip shows the tool: hover ring (Edit),', 'sphere (Brush), cube (Fill), ring (pipette).', 'Index pinch: grab / paint / fill / pick.', 'Middle pinch: extend (Edit), quick palette (paint).', 'Air pinch: move world. Two hands: turn, zoom.'])}
+	${box(40, 660, 520, 150, 'Hints (first launch only)', ['A card above the model, three steps:', 'grab, extend, show a palm. Then gone for good.'], '#5f6569')}
+	${box(720, 100, 520, 260, 'Palm menu (palm up, other hand pokes)', ['Strip: Edit, Select, Brush, Fill | Home.', 'Options above it, by tool:', 'Edit / Select: legend, reset view, selection.', 'Brush / Fill: swatch, size, pipette, wheel, presets.', 'Drag off the palm to leave it in the world (X).'])}
+	${box(720, 480, 520, 190, 'Quick palette (Brush, Fill)', ['Middle pinch and hold: 12 presets in a ring', 'around the hand. Move toward one, release.', 'Release in the middle: nothing changes.'])}
+	${box(1300, 100, 360, 400, 'Home (in the world)', ['Current model: thumbnail,', 'name, Save, New.', 'Cards: poke to open,', 'trash to delete (tap again).', 'Pages: gallery, settings, info.', 'Closes on open, new or X,', 'back to Working.'])}
+	${arrow([[560, 360], [720, 260]], 'palm up  /  palm away', 600, 250, true)}
+	${arrow([[560, 480], [720, 560]], 'middle pinch  /  release', 600, 600, true)}
+	${arrow([[1240, 200], [1300, 200]], 'Home', 1270, 180)}
+	${arrow([[1480, 500], [1480, 900], [300, 900], [300, 810]], 'open / new', 900, 890)}
+	${arrow([[160, 660], [160, 540]], 'gesture done', 160, 600)}
+	<text x="620" y="760" font-size="26" fill="#2d2f31">State, all of it:</text>
+	<text x="620" y="796" font-size="22" fill="#2d2f31">settings.tool (Edit, Select, Brush, Fill), settings.picking</text>
+	<text x="620" y="826" font-size="22" fill="#2d2f31">palm menu: menuHand, placedPose   ·   home: homePose, homePage   ·   quick palette: pinchStart</text>
+	<text x="620" y="856" font-size="22" fill="#2d2f31">hints: hintStep   ·   files: armed, status   ·   doc.selection (multiselect)</text>
+	</svg>`;
+}
+
+// ======================= flat mockups =======================
+function flat(inner, w, h, cap, pad = 60) {
+	return `<div class="frame" style="width:${w}px;height:${h}px"><div style="position:absolute;left:${pad}px;top:${pad}px">${inner}</div>${cap ? `<div class="caption">${cap}</div>` : ''}</div>`;
+}
+const FLAT = {
+	'panel-edit': () => flat(palmMenu('edit'), 880, 900, 'Palm menu, Edit tool: options panel (0.19 x 0.13 m) above the strip (0.19 x 0.047 m).'),
+	'panel-select': () => flat(palmMenu('select', { selection: 12 }), 880, 900, 'Palm menu, Select tool with a selection.'),
+	'panel-brush': () => flat(palmMenu('brush'), 880, 1280, 'Palm menu, Brush: swatch (color and size), size slider, pipette, wheel and brightness, presets.'),
+	'panel-fill': () => flat(palmMenu('fill'), 880, 1280, 'Palm menu, Fill: the swatch is a square like the fingertip cube; size dimmed.'),
+	'panel-pick': () => flat(palmMenu('brush', { picking: true }), 880, 1280, 'Pipette armed: swatch turns into a ring, the button is blue until a color is pinched off the model.'),
+	'panel-placed': () => flat(palmMenu('brush', { placed: true }), 880, 1280, 'Dragged off the palm: the menu stays in the world with a close badge.'),
+	'home-gallery': () => flat(home('gallery', { status: 'Saved robot head', unsaved: false }), 1960, 1420, 'Home (0.46 x 0.32 m): current model left, saved cards right (0.093 m wide). The open file is framed.'),
+	'home-confirm': () => flat(home('gallery', { status: 'Tap again to delete lamp_v2', warn: true, armed: 1 }), 1960, 1420, 'Home: a delete armed. The pressed trash turns red, the status line explains. Save is blue: unsaved work.'),
+	'home-empty': () => flat(home('gallery', { empty: true, openIndex: -1, name: 'gesh_2026-11-09_1432' }), 1960, 1420, 'Home on first launch: nothing saved yet.'),
+	'home-settings': () => flat(home('gear'), 1960, 1420, 'Home, settings page. Experimental tuning under the separator, const-gated.'),
+	'home-info': () => flat(home('info'), 1960, 1420, 'Home, info page.'),
+	'radial': () => flat(radial(2), 1100, 920, 'Quick palette: 12 presets (0.022 m) on a 0.06 m ring around the middle pinch. The one in the hand\'s direction grows and gets a white ring.'),
+	'hints': () => flat(`<div style="display:flex;flex-direction:column;gap:70px">${hint('grab', 'Pinch a corner and pull')}${hint('extend', 'Middle pinch an edge: pull out a face')}${hint('hand', 'Show a palm for tools and colors')}</div>`, 1200, 800, 'Hint cards (0.04 m tall), one at a time above the model, facing the user.'),
+	'fingertips': () => flat(`<div style="display:flex;gap:120px;align-items:center;padding:80px;background:#8f928f;border-radius:30px">
+		<div style="position:relative;width:220px;height:220px">${triangle({ x: 110, y: 130, scale: .5, hover: 2 })}</div>
+		<div style="position:relative;width:220px;height:220px">${fingertip('brush', { x: 110, y: 110, scale: 1.1 })}</div>
+		<div style="position:relative;width:220px;height:220px">${fingertip('fill', { x: 110, y: 110, scale: 1.1 })}</div>
+		<div style="position:relative;width:220px;height:220px">${fingertip('pick', { x: 110, y: 110, scale: 1.1 })}</div></div>`, 1560, 520, 'What the index tip shows: Edit hover ring on the nearest part (accent), Brush sphere (brushRadius), Fill cube (0.025), Pick ring.'),
+	'flow': () => flow(),
+	'storyboard': () => storyboard(),
+};
+
+const want = location.hash.slice(1) || 'panel-edit';
+document.body.innerHTML = FLAT[want] ? FLAT[want]() : SCENES[want]();
+</script>
+</body>
+</html>

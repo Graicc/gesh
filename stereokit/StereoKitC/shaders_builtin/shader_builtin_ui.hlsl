@@ -3,6 +3,12 @@
 //--name = sk/default_ui
 
 float4 color = {1,1,1,1};
+// gesh: a clip region, two world space planes (xyz normal, w offset); a
+// pixel is kept where both are >= 0. The defaults keep everything. The
+// renderer sets them on material copies while a clip is pushed, see
+// render_push_clip.
+float4 clip_top    = {0,0,0,1};
+float4 clip_bottom = {0,0,0,1};
 
 //--diffuse = white
 Texture2D    diffuse   : register(t0);
@@ -19,6 +25,7 @@ struct psIn {
 	float2      uv    : TEXCOORD0;
 	float3      world : TEXCOORD1;
 	min16float4 color : COLOR0;
+	float2      clip  : TEXCOORD2;
 };
 
 psIn vs(vsIn input, sk_ids_t ids) {
@@ -28,6 +35,7 @@ psIn vs(vsIn input, sk_ids_t ids) {
 	float3   world    = mul(input.pos.xyz, world3x3) + sk_inst[ids.inst].world[3].xyz;
 	o.pos   = mul(float4(world, 1), sk_viewproj[ids.view]);
 	o.world = world;
+	o.clip = float2(dot(clip_top.xyz, world) + clip_top.w, dot(clip_bottom.xyz, world) + clip_bottom.w);
 	o.uv    = input.uv;
 	o.color.rgb = color.rgb * input.color.rgb * sk_inst[ids.inst].color.rgb * sk_lighting(normal);
 	o.color.a   = input.color.a;
@@ -35,6 +43,7 @@ psIn vs(vsIn input, sk_ids_t ids) {
 }
 
 min16float4 ps(psIn input) : SV_TARGET {
+	clip(min(input.clip.x, input.clip.y));
 	min16float  glow = sk_finger_glow(input.world);
 	min16float4 col  = min16float4(lerp(input.color.rgb, min16float3(1, 1, 1), glow), input.color.a);
 

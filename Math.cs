@@ -6,6 +6,7 @@ public static class Math
 {
 	public static Vec3 ClosestPointToLine(Vec3 p, Vec3 a, Vec3 b)
 	{
+		if ((b - a).LengthSq == 0) throw new System.ArgumentException($"Zero length line at {a}");
 		float t = Vec3.Dot(p - a, b - a) / (b - a).LengthSq;
 		t = float.Clamp(t, 0, 1);
 		return t * (b - a) + a;

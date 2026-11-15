@@ -5,6 +5,9 @@
 float4 color     = {1,1,1,1};
 float4 tex_trans = {0,0,1,1};
 float  cutoff    = 0.01;
+// gesh: a clip region, see shader_builtin_ui.hlsl. Sprites use this shader.
+float4 clip_top    = {0,0,0,1};
+float4 clip_bottom = {0,0,0,1};
 
 //--diffuse = white
 Texture2D    diffuse   : register(t0);
@@ -20,6 +23,7 @@ struct psIn {
 	float4 pos   : SV_POSITION;
 	float2 uv    : TEXCOORD0;
 	min16float4 color : COLOR0;
+	float2 clip  : TEXCOORD1;
 };
 
 psIn vs(vsIn input, sk_ids_t ids) {
@@ -29,10 +33,12 @@ psIn vs(vsIn input, sk_ids_t ids) {
 
 	o.uv    = (input.uv * tex_trans.zw) + tex_trans.xy;
 	o.color = input.col * color * sk_inst[ids.inst].color;
+	o.clip  = float2(dot(clip_top.xyz, world.xyz) + clip_top.w, dot(clip_bottom.xyz, world.xyz) + clip_bottom.w);
 	return o;
 }
 
 min16float4 ps(psIn input) : SV_TARGET {
+	clip(min(input.clip.x, input.clip.y));
 	min16float4 col = diffuse.Sample(diffuse_s, input.uv);
 	if (col.a < cutoff) discard;
 	

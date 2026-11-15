@@ -174,6 +174,18 @@ namespace StereoKit
 		public void SetData(Vertex[] vertices, uint[] indices, MeshData flags, int priority = 0)
 			=> NativeAPI.mesh_set_data(_inst, vertices, vertices?.Length ?? 0, indices, indices.Length, flags, priority);
 
+		/// <summary>Assigns only the first `vertexCount` vertices and
+		/// `indexCount` indices of the given arrays, so the same arrays can be
+		/// reused every frame for meshes whose size changes. Note that
+		/// StereoKit ignores a count of zero and keeps the old data.</summary>
+		public void SetData(Vertex[] vertices, int vertexCount, uint[] indices, int indexCount, bool calculateBounds = true)
+		{
+			if (vertexCount < 0 || vertexCount > (vertices?.Length ?? 0)) throw new ArgumentOutOfRangeException(nameof(vertexCount));
+			if (indexCount  < 0 || indexCount  > (indices ?.Length ?? 0)) throw new ArgumentOutOfRangeException(nameof(indexCount));
+			NativeAPI.mesh_set_data(_inst, vertices, vertexCount, indices, indexCount,
+				calculateBounds ? MeshData.CalcBounds : MeshData.None, 0);
+		}
+
 		/// <summary>Assigns vertices with a custom vertex format along with
 		/// face indices for this Mesh in a single call! The format is derived
 		/// from T's [VertComponent] tagged fields, see SetVerts for details.

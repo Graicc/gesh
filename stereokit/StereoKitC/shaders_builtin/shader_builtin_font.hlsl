@@ -3,6 +3,12 @@
 //--name = sk/font
 
 float4 color = {1,1,1,1};
+// gesh: a clip region, two world space planes (xyz normal, w offset); a
+// pixel is kept where both are >= 0. The defaults keep everything. The
+// renderer sets them on material copies while a clip is pushed, see
+// render_push_clip.
+float4 clip_top    = {0,0,0,1};
+float4 clip_bottom = {0,0,0,1};
 
 //--diffuse = white
 Texture2D    diffuse   : register(t0);
@@ -18,6 +24,7 @@ struct psIn {
 	float4      pos     : SV_Position;
 	float2      uv      : TEXCOORD0;
 	min16float4 color   : COLOR0;
+	float2      clip    : TEXCOORD1;
 };
 
 psIn vs(vsIn input, sk_ids_t ids) {
@@ -28,10 +35,13 @@ psIn vs(vsIn input, sk_ids_t ids) {
 
 	o.uv    = input.uv;
 	o.color = input.color * color;
+	o.clip = float2(dot(clip_top.xyz, world) + clip_top.w, dot(clip_bottom.xyz, world) + clip_bottom.w);
+
 	return o;
 }
 
 min16float4 ps(psIn input) : SV_TARGET {
+	clip(min(input.clip.x, input.clip.y));
 	// From an excellent article about text rendering by Ben Golus:
 	// https://medium.com/@bgolus/sharper-mipmapping-using-shader-based-supersampling-ed7aadb47bec
 	float2 dx = ddx(input.uv);
