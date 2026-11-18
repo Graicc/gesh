@@ -87,8 +87,8 @@ class GSettings
 	/// <summary>The last tool other than Edit, which a double pinch in the
 	/// air in Edit goes back to. Null until one's been used.</summary>
 	[JsonIgnore] public GTool? lastTool;
-	/// <summary>The pipette is armed: the next pinch on the mesh picks up its
-	/// color, then the paint tool carries on. Only for Brush and Fill.</summary>
+	/// <summary>The pipette is armed: the next touch of the open fingertip on
+	/// the mesh picks up its color, then the paint tool carries on. Only for Brush and Fill.</summary>
 	[JsonIgnore] public bool picking;
 	/// <summary>Radius of the brush sphere on the fingertip.</summary>
 	public float brushRadius = 0.02f;

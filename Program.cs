@@ -12,6 +12,9 @@ class Program
 	/// <summary>Size of the fill tool's box on the fingertip. A face within
 	/// half of it is touched.</summary>
 	const float FILL_SIZE = 0.025f;
+	/// <summary>The pipette's fingertip sphere: touching the mesh with it
+	/// picks the color.</summary>
+	const float PIPETTE_SIZE = 0.02f;
 
 	/// <summary>Where the hand is pinching empty air, irl. A pinch that grabbed
 	/// part of the mesh isn't an air pinch, and neither is one whose fingers
@@ -69,7 +72,7 @@ class Program
 	static GPaintTool PaintTool(Handed handed, GSettings settings, GPalmMenu menu, float meshScale)
 	{
 		if (settings.tool == GTool.Edit) return GPaintTool.Edit;
-		float radius = settings.tool == GTool.Fill ? FILL_SIZE / 2 : settings.brushRadius;
+		float radius = settings.picking ? PIPETTE_SIZE / 2 : settings.tool == GTool.Fill ? FILL_SIZE / 2 : settings.brushRadius;
 		return new GPaintTool(settings.tool, radius / meshScale, settings.brushColor, settings.picking, active: !Busy(handed, menu));
 	}
 
@@ -101,7 +104,7 @@ class Program
 			: settings.brushColor;
 		Color color = GPaintTab.Linear(paint);
 		Color shown = new(color.r, color.g, color.b, settings.picking ? 1 : 0.5f);
-		if (settings.picking) Mesh.Sphere.Draw(material, Matrix.TS(tip.position, 0.02f), shown);
+		if (settings.picking) Mesh.Sphere.Draw(material, Matrix.TS(tip.position, PIPETTE_SIZE), shown);
 		else if (settings.tool == GTool.Brush) Mesh.Sphere.Draw(material, Matrix.TS(tip.position, settings.brushRadius * 2), shown);
 		else if (settings.tool == GTool.Fill) Mesh.Cube.Draw(material, Matrix.TRS(tip.position, tip.orientation, FILL_SIZE), shown);
 		else throw new System.InvalidOperationException($"No fingertip for {settings.tool}");

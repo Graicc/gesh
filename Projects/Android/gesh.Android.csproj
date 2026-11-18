@@ -7,7 +7,7 @@
 		<OutputType>Exe</OutputType>
 		<TargetType>Exe</TargetType> <!--To enable top-level entry points on Android.-->
 		<ApplicationId>com.graic.gesh</ApplicationId>
-		<ApplicationVersion>4</ApplicationVersion>
+		<ApplicationVersion>5</ApplicationVersion>
 		<ApplicationDisplayVersion>$(Version)</ApplicationDisplayVersion>
 		<RootNamespace>gesh</RootNamespace>
 		<ReadOnlyProject>true</ReadOnlyProject>

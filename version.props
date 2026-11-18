@@ -4,6 +4,6 @@
 	    ApplicationVersion in Projects/Android/gesh.Android.csproj on each
 	    store upload too.-->
 	<PropertyGroup>
-		<Version>0.1.2</Version>
+		<Version>0.1.3</Version>
 	</PropertyGroup>
 </Project>

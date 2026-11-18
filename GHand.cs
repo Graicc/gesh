@@ -126,7 +126,8 @@ record struct GHandInput(GHandState state, Pose pose, float closest = 0, float s
 /// the tool but doesn't use it.</param>
 /// <param name="radius">The brush's radius, or for Fill how close the
 /// fingertip must come to touch a face.</param>
-/// <param name="picking">The pipette is armed instead of the tool.</param>
+/// <param name="picking">The pipette is armed instead of the tool; radius
+/// is then how close the fingertip picks from.</param>
 record struct GPaintTool(GTool tool, float radius, Color32 color, bool picking, bool active = true)
 {
 	public static readonly GPaintTool Edit = new(GTool.Edit, 0, default, false);
@@ -170,7 +171,7 @@ class GHand(Handed handed)
 	/// <summary>Where the brush was last frame, so strokes are continuous
 	/// even when the hand moves more than the brush size between frames.</summary>
 	Vec3? lastBrush;
-	/// <summary>The current pinch picked a color or deleted a part, so it's
+	/// <summary>The current pinch selected or deleted a part, so it's
 	/// theirs, not an air pinch.</summary>
 	bool toolPinch;
 	/// <summary>The face the fingertip filled last, so it isn't filled again
@@ -178,6 +179,10 @@ class GHand(Handed handed)
 	int? lastFilled;
 	/// <summary>Whether the brush touched the mesh this tick.</summary>
 	bool brushTouching;
+	/// <summary>The pipette just picked a color with this fingertip, so the
+	/// brush or bucket waits until it leaves the mesh: otherwise the same
+	/// touch would paint over the spot it sampled.</summary>
+	bool pickedTouch;
 	/// <summary>While a select pinch sweeps: true if it adds to the selection,
 	/// false if it removes (it started on a selected part).</summary>
 	bool? selectAdding;
@@ -343,9 +348,23 @@ class GHand(Handed handed)
 			if (held.HasValue) events = events with { grabbed = pose.position };
 		}
 
+		if (pickedTouch && (input.state != GHandState.Open || !mesh.GetClosestFace(pose.position, paint.radius).HasValue)) pickedTouch = false;
+
+		// The pipette picks the color the open hand's fingertip touches, no
+		// pinch needed, like the brush and the bucket.
+		if (picking && input.state == GHandState.Open)
+		{
+			Picked = mesh.ColorAt(pose.position, paint.radius);
+			if (Picked.HasValue)
+			{
+				events = events with { picked = pose.position };
+				pickedTouch = true;
+			}
+		}
+
 		// The paint bucket fills each face the open hand's fingertip touches,
 		// like finger painting.
-		if (paint.tool == GTool.Fill && paint.active && !picking && input.state == GHandState.Open)
+		if (paint.tool == GTool.Fill && paint.active && !picking && !pickedTouch && input.state == GHandState.Open)
 		{
 			GMeshPart? face = mesh.GetClosestFace(pose.position, paint.radius);
 			if (face.HasValue && face.Value.Index != lastFilled)
@@ -400,20 +419,13 @@ class GHand(Handed handed)
 			toolPinch = part.HasValue;
 		}
 
-		if (picking && input.JustIndexPinched(lastInput))
-		{
-			Picked = mesh.ColorAt(pose.position, grabRadius);
-			toolPinch = Picked.HasValue;
-			if (Picked.HasValue) events = events with { picked = pose.position };
-		}
-
 		// Two quick index pinches in empty air, with any tool, go back to Edit.
 		// A pinch that grabbed, selected, deleted or picked something isn't in
 		// the air.
 		AirDoubleTapped = paint.active && doubleTap && input.state == GHandState.IndexPinch && !held.HasValue && !toolPinch;
 
 		// The brush paints with the index fingertip whenever the hand is open.
-		if (paint.tool == GTool.Brush && paint.active && !picking && input.state == GHandState.Open)
+		if (paint.tool == GTool.Brush && paint.active && !picking && !pickedTouch && input.state == GHandState.Open)
 		{
 			brushTouching = mesh.PaintStroke(lastBrush ?? pose.position, pose.position, paint.radius, paint.color);
 			lastBrush = pose.position;
