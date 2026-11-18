@@ -495,3 +495,4 @@ dist-store/
 # Store videos are too big for git; kept locally
 store/*.mp4
 store/*.llc
+store/stills/
