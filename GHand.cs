@@ -140,9 +140,15 @@ record struct GHandEvents(Vec3? grabbed = null, Vec3? released = null, Vec3? mer
 /// coordinate space, the caller transforms input into it.</summary>
 class GHand(Handed handed)
 {
-	/// <summary>Two middle pinches in the air this close together in time
-	/// make a new vertex.</summary>
+	/// <summary>A double tap's two pinches start at most this far apart in
+	/// time. Two middle taps in the air make a new vertex, two index taps go
+	/// back to Edit.</summary>
 	const double DOUBLE_TAP_SECONDS = 0.4;
+	/// <summary>A pinch only counts as a tap if it's let go this quickly...</summary>
+	const double TAP_SECONDS = 0.3;
+	/// <summary>...and the hand moved less than this, in meters in the room:
+	/// in mesh space a hand dragging the world hardly moves.</summary>
+	const float TAP_MOVE = 0.03f;
 
 	GMeshPart? held;
 	/// <summary>The held part's vertices when it was grabbed. If the part no
@@ -185,12 +191,14 @@ class GHand(Handed handed)
 	/// <summary>This hand holds a part together with the other hand, see
 	/// GTwoHandGrab, which moves the vertices instead.</summary>
 	bool twoHandGrab;
-	/// <summary>The last middle pinch that started in empty air, for the
-	/// double tap that makes a new vertex.</summary>
-	(double time, Vec3 position)? lastAirTap;
-	/// <summary>The last index pinch that started in empty air, with any
-	/// tool, for the double tap that goes back to Edit.</summary>
-	(double time, Vec3 position)? lastIndexAirTap;
+	/// <summary>The pinch going on, to tell when it ends whether it was a
+	/// tap: quick, still, and it did nothing (grabbed, extended, selected,
+	/// deleted or picked nothing). `at` is in the room, not mesh space.</summary>
+	(GHandState finger, double time, Vec3 at, float moved, bool acted)? pinch;
+	/// <summary>The last pinch, if it was a tap: the first half of a double
+	/// tap. Any pinch after it uses it up, so a tap with the other finger in
+	/// between, or a pinch that did something, starts over.</summary>
+	(GHandState finger, double time, Vec3 at)? lastTap;
 
 	GHandInput lastInput = new();
 
@@ -253,12 +261,27 @@ class GHand(Handed handed)
 	/// Edit.</summary>
 	public bool AirDoubleTapped { get; private set; }
 
-	/// <summary>Whether this pinch is the second of two quick ones close
-	/// together. Updates `last`, so a third tap starts over.</summary>
-	static bool DoubleTap(ref (double time, Vec3 position)? last, GHandInput input, float radius)
+	/// <summary>Tracks pinches as taps. Returns whether a pinch starting this
+	/// tick is the second tap of a double tap with the same finger.</summary>
+	bool TrackTaps(GHandInput input)
 	{
-		bool doubleTap = last.HasValue && input.time - last.Value.time < DOUBLE_TAP_SECONDS && (input.pose.position - last.Value.position).Length < radius;
-		last = doubleTap ? null : (input.time, input.pose.position);
+		Vec3 at = Input.Hand(handed).palm.position;
+		if (pinch is { } p)
+		{
+			if (input.state == p.finger) pinch = p with { moved = float.Max(p.moved, (at - p.at).Length) };
+			else
+			{
+				bool tap = !p.acted && input.time - p.time < TAP_SECONDS && p.moved < TAP_MOVE;
+				lastTap = tap ? (p.finger, p.time, p.at) : null;
+				pinch = null;
+			}
+		}
+
+		if (input.state == GHandState.Open || input.state == lastInput.state) return false;
+		bool doubleTap = lastTap is { } t && t.finger == input.state && input.time - t.time < DOUBLE_TAP_SECONDS && (at - t.at).Length < TAP_MOVE;
+		lastTap = null;
+		// The second tap did something, so it can't start another double tap.
+		pinch = (input.state, input.time, at, 0, doubleTap);
 		return doubleTap;
 	}
 
@@ -304,6 +327,7 @@ class GHand(Handed handed)
 		GHandEvents events = new();
 		bool picking = paint.picking && paint.active;
 		if (input.state != GHandState.IndexPinch) toolPinch = false;
+		bool doubleTap = TrackTaps(input);
 
 		if (held.HasValue && !(StillThere(mesh, held.Value, heldPartVertices) && heldVertices.All(mesh.vertices.IsAlive))) Release();
 		if (pulledFace.HasValue && !StillThere(mesh, pulledFace.Value, pulledFaceVertices))
@@ -386,11 +410,7 @@ class GHand(Handed handed)
 		// Two quick index pinches in empty air, with any tool, go back to Edit.
 		// A pinch that grabbed, selected, deleted or picked something isn't in
 		// the air.
-		if (paint.active && input.JustIndexPinched(lastInput))
-		{
-			if (held.HasValue || toolPinch) lastIndexAirTap = null;
-			else AirDoubleTapped = DoubleTap(ref lastIndexAirTap, input, grabRadius);
-		}
+		AirDoubleTapped = paint.active && doubleTap && input.state == GHandState.IndexPinch && !held.HasValue && !toolPinch;
 
 		// The brush paints with the index fingertip whenever the hand is open.
 		if (paint.tool == GTool.Brush && paint.active && !picking && input.state == GHandState.Open)
@@ -446,7 +466,7 @@ class GHand(Handed handed)
 			{
 				// A double tap in empty air makes a lone vertex, held, which is
 				// how an empty scene gets started.
-				if (DoubleTap(ref lastAirTap, input, grabRadius))
+				if (doubleTap)
 				{
 					int v = mesh.AddVertex(new Vertex(pose.position, Vec3.Up));
 					Grab(mesh, new GMeshPart(GMeshPartType.Vertex, v), pose);
@@ -455,7 +475,6 @@ class GHand(Handed handed)
 			}
 			else
 			{
-				lastAirTap = null;
 				var (newV, newFace) = mesh.Extend(part.Value, pose.position);
 				Grab(mesh, newV, pose);
 				// One pop for the new vertex, and for the face it pulls out with it.
@@ -467,6 +486,10 @@ class GHand(Handed handed)
 				}
 			}
 		}
+
+		// A pinch that grabbed, extended, selected, deleted or picked
+		// something isn't a tap.
+		if (pinch is { } going && (held.HasValue || toolPinch)) pinch = going with { acted = true };
 
 		lastInput = input;
 		Events = events;

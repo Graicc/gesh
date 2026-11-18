@@ -491,3 +491,7 @@ dist/
 dist-store/
 *.keystore
 *.jks
+
+# Store videos are too big for git; kept locally
+store/*.mp4
+store/*.llc

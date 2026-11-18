@@ -64,6 +64,22 @@ static class GSaver
 		catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
 	}
 
+	/// <summary>Example models from Assets/samples, copied into the saves
+	/// folder on first launch so the Files list starts with something to open.
+	/// Only then, so one the user deletes stays deleted.</summary>
+	static readonly string[] SAMPLES = ["fox", "G"];
+
+	public static void AddSamples()
+	{
+		foreach (string name in SAMPLES)
+		{
+			// Shipped with the app, so a missing one is a packaging bug.
+			byte[] data = Platform.ReadFileBytes($"samples/{name}.glb") ?? throw new InvalidOperationException($"Assets/samples/{name}.glb is missing");
+			try { File.WriteAllBytes(GFiles.PathFor(name), data); }
+			catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Err($"Couldn't add the {name} sample: {e.Message}"); }
+		}
+	}
+
 	public static GDocument StartupDocument()
 	{
 		try

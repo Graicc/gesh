@@ -156,7 +156,8 @@ class Program
 		// A bench run measures performance on a scripted scene, see plans/perf.md.
 		GBench? bench = GBench.FromFlag();
 		bool firstLaunch = bench == null && GSaver.IsFirstLaunch();
-		GDocument doc = bench != null ? bench.CreateDocument() : firstLaunch ? GDocument.FirstLaunch() : GSaver.StartupDocument();
+		if (firstLaunch) GSaver.AddSamples();
+		GDocument doc = bench != null ? bench.CreateDocument() : firstLaunch ? GDocument.New() : GSaver.StartupDocument();
 		GAutosave autosave = new(doc);
 		GMeshRenderer meshRenderer = new();
 		GSettings gsettings = GSettingsFile.Load();

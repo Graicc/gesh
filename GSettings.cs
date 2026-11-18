@@ -75,8 +75,9 @@ class GSettings
 	/// headset has it.</summary>
 	public bool metaHandMesh = true;
 	/// <summary>Draw the mesh's vertices and edges over its faces, except
-	/// while painting.</summary>
-	public bool meshOutline = true;
+	/// while painting. Not saved: it's only switchable in the experimental
+	/// settings, so it starts on every launch even if it was turned off.</summary>
+	[JsonIgnore] public bool meshOutline = true;
 	/// <summary>How loud the app's sounds are, 0 to 1, StereoKit's menu
 	/// sounds included. 0 is silent.</summary>
 	public float soundVolume = 1;

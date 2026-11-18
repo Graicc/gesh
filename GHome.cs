@@ -40,7 +40,7 @@ class GHome(GSounds sounds)
 	const float CARD_LABEL = 0.026f;
 	const double LIST_REFRESH_SECONDS = 1;
 	/// <summary>Dev tuning that won't ship, at the bottom of Settings.</summary>
-	const bool EXPERIMENTAL = true;
+	const bool EXPERIMENTAL = false;
 	/// <summary>Modals sit this far in front of Home, toward the user (-z).</summary>
 	const float MODAL_LIFT = 0.04f;
 	/// <summary>Monospace columns the notices are wrapped to.</summary>
@@ -314,7 +314,6 @@ class GHome(GSounds sounds)
 				else result = StartTutorial(hints);
 			},
 			row => Toggle("Passthrough", ref settings.passthrough, row, passthroughAvailable),
-			row => Toggle("Mesh outline", ref settings.meshOutline, row, true),
 			row => Slider(settings.soundVolume > 0 ? $"Sounds {settings.soundVolume * 100:0}%" : "Sounds off", "soundVolume", ref settings.soundVolume, 0, 1, row),
 		};
 		if (EXPERIMENTAL)
@@ -326,6 +325,7 @@ class GHome(GSounds sounds)
 				UI.PopTextStyle();
 			});
 			rows.Add(row => Toggle("Meta hand mesh", ref settings.metaHandMesh, row, handMeshAvailable));
+			rows.Add(row => Toggle("Mesh outline", ref settings.meshOutline, row, true));
 			rows.Add(row => Slider("Reach", "grabRadius", ref settings.grabRadius, 0.01f, 0.15f, row));
 			rows.Add(row => Toggle("Release from closest", ref settings.experimentalPinch, row, true));
 			// Start and release limit each other's sliders: releasing closer
@@ -373,7 +373,7 @@ class GHome(GSounds sounds)
 
 	static GDocument StartTutorial(GHints hints)
 	{
-		GDocument start = GDocument.FirstLaunch();
+		GDocument start = GDocument.New();
 		hints.Restart(start);
 		return start;
 	}
@@ -395,15 +395,22 @@ class GHome(GSounds sounds)
 		GDraw.HSlider(id, ref value, min, max, UI.LayoutReserve(new Vec2(row.x - LABEL - UI.Settings.gutter, row.y)));
 	}
 
-	/// <summary>The app, its version, who made it, and the notices.</summary>
+	/// <summary>The app, its version, who made it, and the notices, centered
+	/// in the window.</summary>
 	void DrawInfo()
 	{
 		Version v = typeof(GHome).Assembly.GetName().Version ?? throw new InvalidOperationException("No assembly version");
 		float width = UI.LayoutRemaining.x;
+		float titleHeight = Text.SizeLayout("G", GTheme.Title).y;
+		// Extra room above the button, so it doesn't crowd the credit.
+		float buttonGap = UI.Settings.gutter * 4;
+		float height = titleHeight + UI.Settings.gutter + UI.LineHeight + buttonGap + BUTTON;
+		UI.VSpace(float.Max(0, (UI.LayoutRemaining.y - height) / 2));
+
 		UI.PushTextStyle(GTheme.Title);
 		// 0.1 or 0.1.1: the third number only when there is one.
 		string shown = v.Build > 0 ? $"{v.Major}.{v.Minor}.{v.Build}" : $"{v.Major}.{v.Minor}";
-		UI.Text($"Gesh v{shown}", Align.CenterLeft, TextFit.Clip, new Vec2(width, Text.SizeLayout("G", GTheme.Title).y));
+		UI.Text($"Gesh v{shown}", Align.Center, TextFit.Clip, new Vec2(width, titleHeight));
 		UI.PopTextStyle();
 
 		// "Made with <3 by Graic", the name in bold and a link.
@@ -411,6 +418,7 @@ class GHome(GSounds sounds)
 		const string NAME = "Graic";
 		float byWidth = Text.SizeLayout(BY, GTheme.Small).x;
 		float nameWidth = Text.SizeLayout(NAME, GTheme.SmallBold).x;
+		UI.HSpace((width - byWidth - nameWidth) / 2);
 		Bounds line = UI.LayoutReserve(new Vec2(byWidth + nameWidth, UI.LineHeight));
 		Vec3 left = GDraw.TopLeft(line) - new Vec3(0, line.dimensions.y / 2, GDraw.LIFT * 2);
 		Text.Add(BY, Matrix.T(left), GTheme.Small, Pivot.CenterLeft, Align.CenterLeft);
@@ -421,7 +429,10 @@ class GHome(GSounds sounds)
 		Text.Add(NAME, Matrix.T(link.center + new Vec3(0, 0, -GDraw.LIFT * 2)), GTheme.SmallBold, linkColor.ToLinear(), Pivot.Center, Align.Center);
 		if (state.IsJustActive()) GLink.Open(WEBSITE);
 
-		if (UI.Button("Copyright notices", new Vec2(0.1f, BUTTON))) modal = new GNotices();
+		const float NOTICES = 0.1f;
+		UI.VSpace(buttonGap - UI.Settings.gutter);
+		UI.HSpace((width - NOTICES) / 2);
+		if (UI.Button("Copyright notices", new Vec2(NOTICES, BUTTON))) modal = new GNotices();
 	}
 
 	/// <summary>The modal, in front of Home's middle.</summary>

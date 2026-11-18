@@ -63,8 +63,7 @@ class GBench
 	public GDocument CreateDocument()
 	{
 		var rng = new Random(1234);
-		GDocument doc = GDocument.New();
-		doc.name = "bench";
+		GDocument doc = new(GDocument.Triangle(), GWorld.Identity, "bench");
 		GEditableMesh mesh = doc.mesh;
 		mesh.SetTexelSize(texelSize);
 		while (mesh.faces.Indices().Count() < faces)
@@ -90,7 +89,7 @@ class GBench
 	/// biggest paint cells) after painting it: the slowest single edit.</summary>
 	static double BigExtendMs(float texelSize)
 	{
-		GEditableMesh mesh = GDocument.StartingMesh();
+		GEditableMesh mesh = GDocument.Triangle();
 		mesh.SetTexelSize(texelSize);
 		int face = mesh.faces.Indices().First();
 		GFace f = mesh.faces.values[face];

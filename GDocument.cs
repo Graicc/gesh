@@ -29,11 +29,10 @@ class GDocument
 
 	public bool HasUnsavedChanges => mesh.ContentHash() != savedHash;
 
-	public static GDocument New() => new(StartingMesh(), GWorld.Identity, GFiles.DefaultName());
-
-	/// <summary>The first launch starts with a small tetrahedron, about two
-	/// baseballs across, so there are corners, edges and faces to try.</summary>
-	public static GDocument FirstLaunch() => new(Tetrahedron(new Vec3(0, -0.2f, -0.4f), 0.296f), GWorld.Identity, GFiles.DefaultName());
+	/// <summary>A new document starts with a small tetrahedron, about two
+	/// baseballs across, so there are corners, edges and faces to try. The
+	/// tutorial and the first launch start with it too.</summary>
+	public static GDocument New() => new(Tetrahedron(new Vec3(0, -0.2f, -0.4f), 0.296f), GWorld.Identity, GFiles.DefaultName());
 
 	static GEditableMesh Tetrahedron(Vec3 center, float diameter)
 	{
@@ -56,8 +55,9 @@ class GDocument
 		return mesh;
 	}
 
-	/// <summary>One triangle facing the user, to pull everything else out of.</summary>
-	public static GEditableMesh StartingMesh()
+	/// <summary>One big triangle facing the user, what the benchmark grows
+	/// its mesh from.</summary>
+	public static GEditableMesh Triangle()
 	{
 		GEditableMesh mesh = new();
 		mesh.AddVertex(new Vertex(new Vec3(0, -0.5f, -0.5f), Vec3.Up));

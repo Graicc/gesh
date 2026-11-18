@@ -15,7 +15,9 @@ your real hands cover it when they're in front, and it's still there tomorrow.
 ## What's there already
 
 - The Android manifest already declares `com.oculus.feature.PASSTHROUGH`
-  (not required) and `com.oculus.permission.USE_SCENE`.
+  (not required). `com.oculus.permission.USE_SCENE` was taken out while
+  nothing used it; occlusion (environment depth) and scene planes need it
+  back.
 - `Program.cs` draws the floor grid only when `Device.DisplayBlend` is
   `Opaque`, so it already hides itself over passthrough.
 - The StereoKit fork has:
@@ -82,7 +84,7 @@ the model jumps.
 
 ## Phase 4, later: the room as a reference
 
-- Scene planes (`USE_SCENE` is in the manifest already) let a released
+- Scene planes (need `USE_SCENE` back in the manifest) let a released
   vertex snap to a real table or wall, and give a "put it on the desk"
   button.
 - Shadows on real surfaces (a soft blob under the model, on the floor plane)

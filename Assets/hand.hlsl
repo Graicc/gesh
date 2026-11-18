@@ -70,13 +70,16 @@ float4 ps(psIn input) : SV_TARGET {
 	// Fading out toward the wrist.
 	float  fade = saturate((0.45 - saturate(input.uv.y)) / 0.15);
 
-	// Depth only where the hand shows, so the faded wrist hides nothing.
-	if (pass > 1.5) {
-		if (fade <= 0) discard;
+	// Depth for the whole hand, the faded wrist too: the mesh is open at the
+	// wrist, and without depth there the outline shell's inside showed
+	// through the opening as a solid grey patch. The hand draws after the
+	// scene, so this invisible depth hides nothing of the model.
+	if (pass > 1.5)
 		return float4(0, 0, 0, 0);
-	}
+	// The outline fades out ahead of the fill, so no light ring is left
+	// around a wrist that's already gone.
 	if (pass > 0.5)
-		return float4(tool * outline * input.tint, fade);
+		return float4(tool * outline * input.tint, fade * fade);
 
 	// The tool's hue at full brightness, so white leaves the fill as it is.
 	float3 hue = tool / max(max(tool.r, tool.g), max(tool.b, 0.001));

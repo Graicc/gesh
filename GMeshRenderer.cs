@@ -31,6 +31,9 @@ class GMeshRenderer
 	}
 
 	List<Page> pages = [];
+	/// <summary>The atlas the pages' textures came from. Opening another
+	/// document swaps it, and its page versions mean nothing for the old one.</summary>
+	GPaintAtlas? uploadedAtlas;
 	Material frontMaterial = new("mesh.hlsl");
 	// Back faces won't show up in exported meshes, so draw them as a see-through
 	// red grid instead of hiding them.
@@ -68,6 +71,13 @@ class GMeshRenderer
 	void UpdateFaces(GEditableMesh source)
 	{
 		GPaintAtlas paint = source.paint;
+		if (paint != uploadedAtlas)
+		{
+			// Every atlas numbers its versions from 0, so the new one's could
+			// match what the old one uploaded and leave its paint showing.
+			foreach (Page page in pages) page.uploadedVersion = -1;
+			uploadedAtlas = paint;
+		}
 		while (pages.Count < paint.pages.Count) pages.Add(new Page(frontMaterial));
 		foreach (Page page in pages) page.count = 0;
 
@@ -97,7 +107,9 @@ class GMeshRenderer
 			Page page = pages[i];
 			// StereoKit ignores empty data, so empty pages just aren't drawn.
 			if (page.count > 0) page.mesh.SetData(page.verts, page.count, page.inds, page.count);
-			if (page.uploadedVersion != paint.pageVersions[i])
+			// A smaller document leaves pages past its own: they have no
+			// faces, so aren't drawn, and nothing to upload.
+			if (i < paint.pages.Count && page.uploadedVersion != paint.pageVersions[i])
 			{
 				page.tex.SetColors(GPaintAtlas.PAGE, GPaintAtlas.PAGE, paint.pages[i], TexFormat.Rgba32);
 				page.uploadedVersion = paint.pageVersions[i];

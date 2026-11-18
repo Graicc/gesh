@@ -49,9 +49,11 @@ apksigner verify --print-certs -v dist-store/com.graic.gesh-Signed.apk
 
 Expect:
 
-- `package: name='com.graic.gesh' versionCode='<the new number>' versionName='0.1'`
+- `package: name='com.graic.gesh' versionCode='<the new number>' versionName='<Version from version.props>'`
 - `targetSdkVersion:'32'`, `native-code: 'arm64-v8a'`
-- Permissions: only the two OpenXR ones, `HAND_TRACKING` and `USE_SCENE`.
+- Permissions: only the two OpenXR ones and `HAND_TRACKING`. Nothing uses
+  scene data yet, so `USE_SCENE` is left out; add it back with the feature
+  that needs it (see `plans/mr.md`).
 - `Verified using v3 scheme ... true`, and the certificate DN is your
   name, not `CN=Android Debug`. v2 shows false: with a minimum SDK of 29
   apksigner only writes v3, which every Quest checks.
@@ -106,8 +108,26 @@ narrower field of view. The app's own launcher icon in
 
 The cover art (`cover_landscape_2560x1440.png`, `cover_square_1440x1440.png`,
 `cover_portrait_1008x1440.png`, `hero_3000x900.png`) is the fox
-(`saves/2026-11-14/fox2.glb`) on a blue gradient in the accent color. The
+(`saves/2026-11-14/fox2.glb`) on a flat blue in the accent hue, with a soft
+shadow under its feet. The
 fox alone on a transparent background, for laying out other art, is
-`fox_side_transparent.png` and `fox_front_transparent.png`. Check the sizes
+`fox_side_transparent.png` and `fox_front_transparent.png`. At 3:2, to go
+with the logo, there's `cover_3000x2000.png` (on the blue) and
+`fox_transparent_3000x2000.png`.
+
+`logo_rainbow_3000x2000.png` is the logo at 3:2 on a transparent background,
+each face one flat unlit color, the hue running red to violet along the G
+from the bottom of the top arm round to the inner bar (by distance across
+the faces).
+
+`fox_floor_3000x2000.png` and `logo_rainbow_floor_3000x2000.png` are the same
+two in the headset's surroundings: StereoKit's default sky and the app's
+floor grid. The fox stands over its own floor, where the app draws it; the
+logo's save is turned on its side, so its floor is an upright one 1 m to a
+square, just under the G.
+
+`tutorial_pinch.gif`, `tutorial_middle_pinch.gif` and `tutorial_palm.gif` are
+the tutorial animations from `tutorial/page.html` (as `scripts/tutorial.py`
+captures them, at 512 px, 24 fps, looping) on the covers' blue. Check the sizes
 against the dashboard's asset page before uploading; Meta changes them now
 and then.

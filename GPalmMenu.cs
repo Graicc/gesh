@@ -20,8 +20,16 @@ class GPalmMenu
 	// the head, straightness the dot product between each finger and the hand's
 	// forward direction. Opening is stricter than staying open, so the menu
 	// doesn't flicker at the edges.
-	const float OPEN_FACING = 0.7f;
+	const float OPEN_FACING = 0.8f;
 	const float STAY_FACING = 0.4f;
+	/// <summary>Opening also needs the head pointed at the palm, within this
+	/// many degrees: a palm turned up at the edge of view while working
+	/// summoned it by accident.</summary>
+	const float OPEN_GAZE_DEGREES = 37.5f;
+	/// <summary>It stays open until the head turns twice as far from the palm
+	/// as opening needs: glancing at the model while poking the menu keeps
+	/// it, looking away puts it away.</summary>
+	const float STAY_GAZE_DEGREES = OPEN_GAZE_DEGREES * 2;
 	const float STAY_STRAIGHTNESS_MARGIN = 0.2f;
 
 	public const float WIDTH = 0.19f;
@@ -241,16 +249,23 @@ class GPalmMenu
 	static Handed? PickMenuHand(Handed? current, GSettings settings)
 	{
 		float stayStraightness = settings.menuStraightness - STAY_STRAIGHTNESS_MARGIN;
-		if (current.HasValue && IsPalmShown(Input.Hand(current.Value), STAY_FACING, stayStraightness))
+		if (current.HasValue && IsPalmShown(Input.Hand(current.Value), STAY_FACING, stayStraightness) && IsLookedAt(Input.Hand(current.Value), STAY_GAZE_DEGREES))
 		{
 			return current;
 		}
 
 		foreach (Handed handed in new[] { Handed.Left, Handed.Right })
 		{
-			if (IsPalmShown(Input.Hand(handed), OPEN_FACING, settings.menuStraightness)) return handed;
+			Hand hand = Input.Hand(handed);
+			if (IsPalmShown(hand, OPEN_FACING, settings.menuStraightness) && IsLookedAt(hand, OPEN_GAZE_DEGREES)) return handed;
 		}
 		return null;
+	}
+
+	static bool IsLookedAt(Hand hand, float maxDegrees)
+	{
+		Vec3 toPalm = (hand.palm.position - Input.Head.position).Normalized;
+		return Vec3.Dot(Input.Head.Forward, toPalm) >= MathF.Cos(maxDegrees * MathF.PI / 180);
 	}
 
 	/// <summary>Is the palm facing the user, with the fingers stretched out
